@@ -1,0 +1,6 @@
+# .dockerignore
+.venv/
+.sila_cache/
+__pycache__/
+*.pyc
+.git/

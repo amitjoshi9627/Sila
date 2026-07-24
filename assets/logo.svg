@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <!-- Minimalist Sila Emblem -->
+  <g stroke="#2a2420" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer Precision Ring -->
+    <circle cx="60" cy="60" r="50" stroke-width="2.5" opacity="0.95"/>
+    
+    <!-- Inner Lens Aperture / Organic S-Curve Motif -->
+    <!-- Curve 1: Sweeping top arc -->
+    <path d="M 38 60 C 38 42, 54 34, 72 38 C 82 40, 84 52, 74 60 C 64 68, 46 72, 46 84 C 46 94, 60 94, 76 86" stroke-width="2.2" opacity="0.9"/>
+    
+    <!-- Minimal Aperture Focus Tick Marks -->
+    <circle cx="60" cy="60" r="14" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.65"/>
+    <circle cx="60" cy="60" r="4" fill="#2a2420" stroke="none"/>
+  </g>
+</svg>

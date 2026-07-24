@@ -1,0 +1,46 @@
+name: Sila MLOps CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  quality-and-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Setup uv (Python Package Manager)
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+
+    - name: Install Dependencies
+      # Leverages our new cross-platform Makefile to sync python and node packages
+      run: make install
+
+    - name: Run Code Quality Checks
+      # Runs ruff formatting, ruff linting, and mypy type checks
+      run: make lint
+
+    - name: Run Automated ML Tests
+      # Runs our mocked pipeline to ensure no structural code is broken
+      run: uv run pytest tests/
+
+    - name: Verify UI Build
+      # Ensures the React frontend successfully compiles without TS/syntax errors
+      run: cd src/sila/ui && npm run build

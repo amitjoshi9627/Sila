@@ -1,0 +1,68 @@
+# Sila Specific Caches, Media & Exports
+.sila_cache/
+Sila Exports/
+*Exports/
+test_media/
+models/
+*.db
+*.sqlite
+*.sqlite3
+
+# DVC (Data Version Control)
+.dvc/cache/
+.dvc/tmp/
+
+# Python & uv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# Testing, Coverage & Quality Tools
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Node.js, React & Vite UI
+node_modules/
+dist/
+dist-ssr/
+build/
+.npm/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# IDEs & Editors
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+Icon
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db

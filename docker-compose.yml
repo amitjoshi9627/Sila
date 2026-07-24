@@ -1,0 +1,42 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: sila-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  sila-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sila-api
+    command: uv run uvicorn src.sila.api.server:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.sila_cache:/app/.sila_cache
+      # 1:1 Volume mapping ensures symlinks generated inside match host paths
+      - /mnt:/mnt
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - HF_HUB_OFFLINE=1
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  sila-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sila-worker
+    command: uv run celery -A src.sila.workers.tasks worker --pool=solo --loglevel=info
+    volumes:
+      - ./.sila_cache:/app/.sila_cache
+      - /mnt:/mnt
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - HF_HUB_OFFLINE=1
+    depends_on:
+      - redis
+    restart: unless-stopped

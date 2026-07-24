@@ -1,0 +1,82 @@
+# Makefile for Sila Development Automation
+
+.PHONY: install start clean lint lint-fix test run api ui dev info
+
+# Detect Operating System and Active Dependencies
+OS := $(shell uname -s)
+# Checks if the Docker daemon is actively responding, not just installed
+HAS_DOCKER := $(shell docker info > /dev/null 2>&1 && echo "yes")
+HAS_UV := $(shell command -v uv 2> /dev/null)
+MEDIA_DIR ?= ./test_media
+
+# Helper to print detected environment status
+info:
+	@echo "--------------------------------------------------"
+	@echo "💻 Operating System : $(OS)"
+	@echo "🐳 Docker Daemon    : $(if $(HAS_DOCKER),✅ Active,⚠️ Inactive / Not Running)"
+	@echo "⚡ UV Package Mgr  : $(if $(HAS_UV),✅ Installed,❌ Not Found)"
+	@echo "--------------------------------------------------"
+
+install: info
+	@echo "🚀 Setting up Sila..."
+	@if [ -z "$(HAS_UV)" ]; then \
+		echo "📦 Installing 'uv' (Python package manager)..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		export PATH="$$HOME/.local/bin:$$PATH"; \
+	fi
+	@echo "🔄 Syncing Python environment..."
+	@uv sync
+	@echo "✅ Installation complete! Run 'make start' to launch Sila."
+
+start: info
+	@echo "🟢 Booting Sila..."
+	@echo "🛠️ Ensuring databases are initialized..."
+	@uv run python -m src.sila.main init
+	@if [ -n "$(HAS_DOCKER)" ]; then \
+		if [ "$(OS)" = "Darwin" ]; then \
+			echo "🍎 macOS + Docker detected -> Launching Hybrid Native Mode (Apple Metal Acceleration)..."; \
+			uv run honcho start; \
+		else \
+			echo "🐧/🪟 Linux/Windows + Docker detected -> Launching Full Containerized Mode..."; \
+			docker compose up -d; \
+		fi \
+	else \
+		echo "⚠️ No Docker detected. Launching Pure Native Mode (Ensure 'redis-server' is installed locally)..."; \
+		uv run honcho start -f Procfile.nodocker; \
+	fi
+
+# Run Sila ingestion pipeline on a target directory (removed 'start' dependency so it doesn't freeze)
+run:
+	@echo "📥 Running Sila Ingestion Pipeline on target: $(MEDIA_DIR)"
+	uv run python -m main index --path $(MEDIA_DIR)
+
+clean:
+	@echo "🧹 Cleaning up background containers and Sila caches..."
+	@if [ -n "$(HAS_DOCKER)" ]; then docker rm -f sila-redis 2>/dev/null || true; fi
+	@lsof -ti :8000 | xargs kill -9 2>/dev/null || true
+	@lsof -ti :6379 | xargs kill -9 2>/dev/null || true
+	@rm -rf .sila_cache/
+	@echo "✨ Cleaned."
+
+# --- Quality Control & Development Targets ---
+
+lint:
+	uv run ruff check src/
+	uv run ruff format --check src/
+	uv run mypy src/ --strict --ignore-missing-imports
+
+lint-fix:
+	uv run ruff check src/ --fix
+	uv run ruff format src/
+
+api:
+	uv run python -m src.sila.main ui
+
+dashboard:
+	@echo "🖥️  Starting Sila React Dashboard..."
+	cd src/sila/ui && npm run dev
+
+dev:
+	@echo "🚀 Launching Sila Backend API and Frontend Dashboard concurrently..."
+	uv run python -m src.sila.main ui & \
+	cd src/sila/ui && npm run dev
