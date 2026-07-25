@@ -22,6 +22,8 @@ from src.sila.core.constants import (
     SCENE_SIMILARITY_THRESHOLD,
 )
 
+from tqdm import tqdm
+
 logger = logging.getLogger("sila.pipeline.scanner")
 
 
@@ -33,9 +35,28 @@ class SilaMediaScanner:
 
     def scan_and_slice(self) -> None:
         """Finds media, extracts representational frames using ML algorithms, and dispatches them."""
-        for file_path in self.target_dir.rglob("*"):
-            if file_path.suffix.lower() in VALID_MEDIA_EXTENSIONS:
-                self._process_media_file(file_path)
+        media_files = sorted(
+            [
+                f
+                for f in self.target_dir.rglob("*")
+                if f.is_file() and f.suffix.lower() in VALID_MEDIA_EXTENSIONS
+            ]
+        )
+        total_files = len(media_files)
+
+        if total_files == 0:
+            logger.info(f"No valid media files found in: {self.target_dir}")
+            return
+
+        logger.info(f"Found {total_files} media file(s) in: {self.target_dir}")
+
+        for file_path in tqdm(
+            media_files,
+            desc="🚀 Indexing Media",
+            unit="file",
+            dynamic_ncols=True,
+        ):
+            self._process_media_file(file_path)
 
     @staticmethod
     def _calculate_blur_score(image_path: Path) -> float:
@@ -224,7 +245,7 @@ class SilaMediaScanner:
 
         return capsules_found
 
-    def _process_media_file(self, source_path: Path) -> None:
+    def _process_media_file(self, source_path: Path) -> int:
         """Determines media type, generates capsules, updates DB, and fires the DAG."""
         parent_sila_id = f"vid_{uuid.uuid4().hex[:8]}"
 
@@ -238,7 +259,7 @@ class SilaMediaScanner:
                 "created_at": time.time(),
             }
         )
-        logger.info(f"Registered Media: {source_path.name}")
+        logger.debug(f"Registered Media: {source_path.name}")
 
         suffix = source_path.suffix.lower()
         capsules_to_process = []
@@ -269,6 +290,7 @@ class SilaMediaScanner:
             capsules_to_process.append((capsule_id, 0.0))
 
         # 3. Save to DB and Dispatch to the Celery DAG
+        dispatched_count = 0
         for capsule_id, ts in capsules_to_process:
             thumb_path = self.frame_cache / f"{capsule_id}.jpg"
 
@@ -287,7 +309,7 @@ class SilaMediaScanner:
                     }
                 )
 
-                logger.info(f"Dispatching DAG for capsule: {capsule_id}")
+                logger.debug(f"Dispatching DAG for capsule: {capsule_id}")
 
                 # Pass into the new chained DAG dispatcher instead of the old raw task
                 SilaDAGDispatcher.dispatch_capsule(
@@ -296,3 +318,6 @@ class SilaMediaScanner:
                     parent_id=parent_sila_id,
                     timestamp=ts,
                 )
+                dispatched_count += 1
+
+        return dispatched_count

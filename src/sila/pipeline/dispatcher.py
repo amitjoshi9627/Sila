@@ -26,4 +26,4 @@ class SilaDAGDispatcher:
         )
 
         workflow.apply_async()
-        logger.info(f"DAG Dispatched to Redis for capsule: {capsule_id}")
+        logger.debug(f"DAG Dispatched to Redis for capsule: {capsule_id}")

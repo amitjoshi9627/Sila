@@ -17,6 +17,12 @@ logger = logging.getLogger("sila.workers")
 
 
 celery_app = Celery("sila_tasks", broker=CELERY_BROKER_URL)
+celery_app.conf.update(
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    worker_redirect_stdouts=False,
+)
 
 _VISION_ENGINE: SilaVisionEngine | None = None
 _IMAGE_EMBEDDER: SilaEmbeddingEngine | None = None
@@ -46,12 +52,12 @@ def process_vision_node(
         # 2. Save strictly to SQLite
         db = SilaSQLiteClient()
         db.update_cognitive_tags(capsule_id, cognitive_json)
+        logger.info(f"Vision Engine processed capsule: {capsule_id}")
 
-        # 3. Pass data payload down the DAG to the Embedding Node
+        # 3. Pass minimal payload down the DAG to the Embedding Node
         return {
             "capsule_id": capsule_id,
             "image_path_str": image_path_str,
-            "cognitive_tags": cognitive_json,
             "parent_sila_id": parent_sila_id,
             "timestamp": timestamp,
         }
@@ -62,17 +68,29 @@ def process_vision_node(
 
 
 @celery_app.task(bind=True, max_retries=3)  # type: ignore[untyped-decorator]
-def process_embedding_node(
-    self: Any, pipeline_payload: dict[str, Any]
-) -> dict[str, Any]:
+def process_embedding_node(self: Any, pipeline_payload: dict[str, Any]) -> str:
     """DAG Step 2: Generates both dual-vectors and saves to LanceDB."""
     global _IMAGE_EMBEDDER, _TEXT_EMBEDDER
 
     capsule_id = pipeline_payload["capsule_id"]
     image_path_str = pipeline_payload["image_path_str"]
-    cognitive_tags = pipeline_payload["cognitive_tags"]
     parent_id = pipeline_payload["parent_sila_id"]
     timestamp = pipeline_payload["timestamp"]
+
+    # Retrieve cognitive tags from SQLite (saved by Vision node)
+    cognitive_tags = pipeline_payload.get("cognitive_tags")
+    if not cognitive_tags:
+        with SilaSQLiteClient() as db:
+            assert db.conn is not None
+            cursor = db.conn.cursor()
+            cursor.execute(
+                "SELECT cognitive_tags FROM capsules WHERE capsule_id = ?",
+                (capsule_id,),
+            )
+            row = cursor.fetchone()
+            cognitive_tags = (
+                row["cognitive_tags"] if row and row["cognitive_tags"] else ""
+            )
 
     try:
         if _IMAGE_EMBEDDER is None:
@@ -105,8 +123,9 @@ def process_embedding_node(
             parent_id=parent_id,
             timestamp=timestamp,
         )
+        logger.info(f"Embedding Engine indexed capsule: {capsule_id}")
 
-        return {"capsule_id": capsule_id, "status": "PIPELINE_COMPLETE"}
+        return str(capsule_id)
 
     except Exception as exc:
         logger.error(f"Embedding failure on {capsule_id}: {exc}")

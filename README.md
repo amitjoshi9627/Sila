@@ -89,36 +89,37 @@ cd sila
 
 ### Option A: The "Magic" Setup (Recommended)
 
-If you have `make` installed (standard on Mac/Linux/WSL), Sila will automatically detect your OS, figure out the best hardware acceleration, and install dependencies.
+If you have `make` installed (standard on Mac/Linux/WSL), Sila will automatically detect your OS, select optimal hardware acceleration, sync dependencies, and pre-fetch ML models.
 
-**1. Install & Sync:**
+**1. Install & Sync Everything:**
 
 ```bash
 make install
-cd src/sila/ui && npm install
-
 ```
+
+*(Automatically syncs Python dependencies, pre-downloads ML model weights via `scripts/download_models.py`, and installs UI dependencies).*
 
 **2. Boot the Sila Engine (Backend + Database):**
 
 ```bash
 make start
-
 ```
+
+*(Includes automatic pre-flight checks to clear stale Redis containers or port conflicts on ports 6379 and 8000).*
 
 **3. Launch the UI Dashboard (In a new terminal window):**
 
 ```bash
 make dashboard
-
 ```
 
-**4. Ingest your raw footage (In a new terminal window):**
+**4. Ingest your raw footage (Includes real-time progress bar):**
 
 ```bash
 make run MEDIA_DIR=/path/to/your/raw/footage
-
 ```
+
+*(You can also run model pre-fetching independently at any time via `make download-models`).*
 
 ---
 
@@ -126,16 +127,19 @@ make run MEDIA_DIR=/path/to/your/raw/footage
 
 If you are running standard Windows or prefer granular control, run these commands:
 
-**1. Install Dependencies:**
-Install `uv` (our lightning-fast Python manager) and sync the environment:
+**1. Install Dependencies & Pre-fetch Models:**
 
 ```bash
-curl -LsSf [https://astral.sh/uv/install.sh](https://astral.sh/uv/install.sh) | sh
+# 1. Install 'uv' and sync Python packages
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
+# 2. Pre-fetch ML models into .sila_cache/
+uv run python scripts/download_models.py
+
+# 3. Install UI dependencies
 cd src/sila/ui && npm install
 cd ../../..
-
 ```
 
 **2. Boot the Sila Engine:**
@@ -149,28 +153,32 @@ Sila's architecture is dynamic. Choose the command that matches your setup:
 
 ```bash
 cd src/sila/ui && npm run dev
-
 ```
 
 **4. Ingest your raw footage:**
 
 ```bash
-uv run python -m src.sila.main index --path /path/to/your/raw/footage
-
+uv run python -m main index --path /path/to/your/raw/footage
 ```
 
 ---
 
 ## 🧹 Maintenance & Cleanup
 
-If you ever need to completely reset Sila, wipe the database, and clear out the background Redis instances, simply run:
+Sila provides granular Makefile targets for workspace and container maintenance:
 
-```bash
-make clean
+* **Reset Databases & Ports (Preserves downloaded ML models):**
+  ```bash
+  make clean
+  ```
+  *(Clears stale Redis containers, port bindings, frame thumbnails, and SQLite/LanceDB data **without** deleting pre-downloaded ML model weights).*
 
-```
+* **Full Factory Reset (Purges everything including ML models):**
+  ```bash
+  make clean-all
+  ```
+  *(Deletes all databases, extracted frames, and model weights in `.sila_cache/models` and `.sila_cache/huggingface`).*
 
-*(Manual equivalent: `docker rm -f sila-redis`, then delete the `.sila_cache/` directory).*
 
 ---
 

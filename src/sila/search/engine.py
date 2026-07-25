@@ -62,6 +62,7 @@ class SilaHybridSearchEngine:
         )
         final_list = self._hydrate_and_group(rrf_scores, limit)
 
+        logger.info(f"Found {len(final_list)} matches for : {text_query}")
         return final_list
 
     @staticmethod
@@ -92,7 +93,8 @@ class SilaHybridSearchEngine:
 
         return scores
 
-    def _parse_cognitive_tags(self, raw_tags: str | None) -> dict[str, Any]:
+    @staticmethod
+    def _parse_cognitive_tags(raw_tags: str | None) -> dict[str, Any]:
         """
         Cleans and normalizes LLM-generated JSON strings.
         Removes escaped formatting sequences and parsing padding introduced during indexing.

@@ -1,5 +1,7 @@
 """Local Multimodal Vision and Text Embedding Engines using Apple Metal Acceleration."""
 
+import os
+import sys
 import base64
 import importlib
 import logging
@@ -12,7 +14,9 @@ from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer
 
-from typing import TypedDict, cast
+
+from typing import TypedDict, Any, cast
+
 
 from config import (
     MODEL_DIR,
@@ -67,8 +71,31 @@ VISION_MODEL_REGISTRY: dict[str, VisionModelConfig] = {
 }
 
 
+class SuppressOutput:
+    """Context manager to suppress low-level C/C++ stdout and stderr output from llama.cpp."""
+
+    def __enter__(self) -> "SuppressOutput":
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self._stdout_fd = os.dup(1)
+        self._stderr_fd = os.dup(2)
+        self._devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(self._devnull, 1)
+        os.dup2(self._devnull, 2)
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(self._stdout_fd, 1)
+        os.dup2(self._stderr_fd, 2)
+        os.close(self._stdout_fd)
+        os.close(self._stderr_fd)
+        os.close(self._devnull)
+
+
 class SilaVisionEngine:
-    def __init__(self, model_key: str, cache_dir: str = "./models") -> None:
+    def __init__(self, model_key: str, cache_dir: str | Path = MODEL_DIR) -> None:
         if model_key not in VISION_MODEL_REGISTRY:
             raise ValueError(f"Model '{model_key}' not found in VISION_MODEL_REGISTRY.")
 
@@ -121,14 +148,16 @@ class SilaVisionEngine:
         print(
             f"Loading weights onto M3 Max GPU matrix. Context length: {self.config['n_ctx']}"
         )
-        return Llama(
-            model_path=str(self.llm_path),
-            chat_handler=chat_handler,
-            chat_format=self.config["chat_format"],
-            n_ctx=self.config["n_ctx"],
-            n_gpu_layers=-1,  # Force-utilize 100% Metal acceleration on M3 Max
-            verbose=False,
-        )
+        with SuppressOutput():
+            model = Llama(
+                model_path=str(self.llm_path),
+                chat_handler=chat_handler,
+                chat_format=self.config["chat_format"],
+                n_ctx=self.config["n_ctx"],
+                n_gpu_layers=-1,  # Force-utilize 100% Metal acceleration on M3 Max
+                verbose=False,
+            )
+        return model
 
     @staticmethod
     def _get_base64_image(image_path: Path) -> str:
@@ -154,23 +183,24 @@ class SilaVisionEngine:
         )
 
         try:
-            response = self.model.create_chat_completion(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+            with SuppressOutput():
+                response = self.model.create_chat_completion(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                                    },
                                 },
-                            },
-                        ],
-                    }
-                ],
-                temperature=0.1,
-            )
+                            ],
+                        }
+                    ],
+                    temperature=0.1,
+                )
             # Correct dict accessor path for llama-cpp-python
             raw_text = ""
             if isinstance(response, dict):
@@ -209,14 +239,20 @@ class SilaEmbeddingEngine:
             device = "cuda"
         try:
             self.embedding_model = SentenceTransformer(
-                model_name, device=device, local_files_only=True
+                model_name,
+                device=device,
+                cache_folder=str(MODEL_DIR),
+                local_files_only=True,
             )
         except Exception:
             logger.info(
                 f"Local files not found for {model_name}. Downloading from Hugging Face..."
             )
             self.embedding_model = SentenceTransformer(
-                model_name, device=device, local_files_only=False
+                model_name,
+                device=device,
+                cache_folder=str(MODEL_DIR),
+                local_files_only=False,
             )
 
     def generate_embedding(self, input_data: str | Image.Image) -> list[float]:

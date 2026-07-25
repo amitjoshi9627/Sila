@@ -43,4 +43,4 @@ jobs:
 
     - name: Verify UI Build
       # Ensures the React frontend successfully compiles without TS/syntax errors
-      run: cd src/sila/ui && npm run build
+      run: cd src/sila/ui && npm ci && npm run build

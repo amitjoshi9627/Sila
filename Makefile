@@ -1,6 +1,7 @@
 # Makefile for Sila Development Automation
 
-.PHONY: install start clean lint lint-fix test run api ui dev info
+.PHONY: install start clean clean-all lint lint-fix test run api ui dev info download-models
+
 
 # Detect Operating System and Active Dependencies
 OS := $(shell uname -s)
@@ -17,6 +18,11 @@ info:
 	@echo "⚡ UV Package Mgr  : $(if $(HAS_UV),✅ Installed,❌ Not Found)"
 	@echo "--------------------------------------------------"
 
+download-models:
+	@echo "📦 Pre-fetching ML models (this may take a few minutes)..."
+	uv run python scripts/download_models.py
+
+
 install: info
 	@echo "🚀 Setting up Sila..."
 	@if [ -z "$(HAS_UV)" ]; then \
@@ -26,12 +32,21 @@ install: info
 	fi
 	@echo "🔄 Syncing Python environment..."
 	@uv sync
+	@$(MAKE) download-models
+	@echo "📦 Installing UI dependencies..."
+	@cd src/sila/ui && npm install
 	@echo "✅ Installation complete! Run 'make start' to launch Sila."
+
+
 
 start: info
 	@echo "🟢 Booting Sila..."
+	@echo "🧹 Clearing any stale Redis containers or port bindings..."
+	@if [ -n "$(HAS_DOCKER)" ]; then docker rm -f sila-redis 2>/dev/null || true; fi
+	@lsof -ti :6379 | xargs kill -9 2>/dev/null || true
+	@lsof -ti :8000 | xargs kill -9 2>/dev/null || true
 	@echo "🛠️ Ensuring databases are initialized..."
-	@uv run python -m src.sila.main init
+	@uv run python -m main init
 	@if [ -n "$(HAS_DOCKER)" ]; then \
 		if [ "$(OS)" = "Darwin" ]; then \
 			echo "🍎 macOS + Docker detected -> Launching Hybrid Native Mode (Apple Metal Acceleration)..."; \
@@ -45,18 +60,25 @@ start: info
 		uv run honcho start -f Procfile.nodocker; \
 	fi
 
+
 # Run Sila ingestion pipeline on a target directory (removed 'start' dependency so it doesn't freeze)
 run:
 	@echo "📥 Running Sila Ingestion Pipeline on target: $(MEDIA_DIR)"
 	uv run python -m main index --path $(MEDIA_DIR)
 
 clean:
-	@echo "🧹 Cleaning up background containers and Sila caches..."
+	@echo "🧹 Cleaning up background containers, databases, and temporary caches..."
 	@if [ -n "$(HAS_DOCKER)" ]; then docker rm -f sila-redis 2>/dev/null || true; fi
 	@lsof -ti :8000 | xargs kill -9 2>/dev/null || true
 	@lsof -ti :6379 | xargs kill -9 2>/dev/null || true
-	@rm -rf .sila_cache/
-	@echo "✨ Cleaned."
+	@rm -rf .sila_cache/frames .sila_cache/sila_lancedb .sila_cache/sila_meta.db
+	@echo "✨ Cleaned runtime data (preserved ML models in .sila_cache/models and .sila_cache/huggingface)."
+
+clean-all: clean
+	@echo "🚨 Purging all downloaded ML models..."
+	@rm -rf .sila_cache/models .sila_cache/huggingface .sila_cache/torch
+	@echo "✨ All caches and models purged."
+
 
 # --- Quality Control & Development Targets ---
 
