@@ -11,22 +11,26 @@ from src.sila.core.llm import SilaVisionEngine, SilaEmbeddingEngine
 
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.db.lancedb_client import SilaLanceDBClient
+from typing import Any
 
 logger = logging.getLogger("sila.workers")
 
-# Initialize Celery app
+
 celery_app = Celery("sila_tasks", broker=CELERY_BROKER_URL)
 
-# --- Lazy-Loaded Engine Singletons ---
-_VISION_ENGINE = None
-_IMAGE_EMBEDDER = None
-_TEXT_EMBEDDER = None
+_VISION_ENGINE: SilaVisionEngine | None = None
+_IMAGE_EMBEDDER: SilaEmbeddingEngine | None = None
+_TEXT_EMBEDDER: SilaEmbeddingEngine | None = None
 
 
-@celery_app.task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=3)  # type: ignore[untyped-decorator]
 def process_vision_node(
-    self, capsule_id: str, image_path_str: str, parent_sila_id: str, timestamp: float
-) -> dict:
+    self: Any,
+    capsule_id: str,
+    image_path_str: str,
+    parent_sila_id: str,
+    timestamp: float,
+) -> dict[str, Any]:
     """DAG Step 1: Reads pixels, generates text JSON, saves to SQLite."""
     global _VISION_ENGINE
 
@@ -57,8 +61,10 @@ def process_vision_node(
         raise self.retry(exc=exc, countdown=2**self.request.retries)
 
 
-@celery_app.task(bind=True, max_retries=3)
-def process_embedding_node(self, pipeline_payload: dict) -> dict:
+@celery_app.task(bind=True, max_retries=3)  # type: ignore[untyped-decorator]
+def process_embedding_node(
+    self: Any, pipeline_payload: dict[str, Any]
+) -> dict[str, Any]:
     """DAG Step 2: Generates both dual-vectors and saves to LanceDB."""
     global _IMAGE_EMBEDDER, _TEXT_EMBEDDER
 

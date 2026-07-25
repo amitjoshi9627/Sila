@@ -12,6 +12,8 @@ from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer
 
+from typing import TypedDict, cast
+
 from config import (
     MODEL_DIR,
     LLAVA_REPO_ID,
@@ -22,6 +24,7 @@ from config import (
     CLIP_MODEL_NAME,
     TEXT_EMBEDDING_MODEL_NAME,
 )
+
 from src.sila.core.constants import EmbeddingType
 
 EMBEDDING_MODEL_NAME = {
@@ -34,7 +37,17 @@ logger = logging.getLogger("sila.core.llm")
 LLAVA = "llava"
 GEMMA = "gemma4"
 
-VISION_MODEL_REGISTRY = {
+
+class VisionModelConfig(TypedDict):
+    repo_id: str
+    llm_file: str
+    vision_file: str | None
+    chat_handler_cls: str | None
+    chat_format: str | None
+    n_ctx: int
+
+
+VISION_MODEL_REGISTRY: dict[str, VisionModelConfig] = {
     LLAVA: {
         "repo_id": LLAVA_REPO_ID,
         "llm_file": LLM_FILE,
@@ -55,11 +68,11 @@ VISION_MODEL_REGISTRY = {
 
 
 class SilaVisionEngine:
-    def __init__(self, model_key: str, cache_dir: str = "./models"):
+    def __init__(self, model_key: str, cache_dir: str = "./models") -> None:
         if model_key not in VISION_MODEL_REGISTRY:
             raise ValueError(f"Model '{model_key}' not found in VISION_MODEL_REGISTRY.")
 
-        self.config = VISION_MODEL_REGISTRY[model_key]
+        self.config: VisionModelConfig = VISION_MODEL_REGISTRY[model_key]
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,9 +80,10 @@ class SilaVisionEngine:
         self.llm_path = self._prepare_file(
             self.config["repo_id"], self.config["llm_file"]
         )
+        vision_file = self.config["vision_file"]
         self.vision_path = (
-            self._prepare_file(self.config["repo_id"], self.config["vision_file"])
-            if self.config["vision_file"]
+            self._prepare_file(self.config["repo_id"], vision_file)
+            if vision_file is not None
             else None
         )
 
@@ -98,9 +112,10 @@ class SilaVisionEngine:
 
     def _init_model(self) -> Llama:
         chat_handler = None
-        if self.config["chat_handler_cls"] and self.vision_path:
+        handler_cls = self.config["chat_handler_cls"]
+        if handler_cls and self.vision_path:
             module = importlib.import_module("llama_cpp.llama_chat_format")
-            handler_class = getattr(module, self.config["chat_handler_cls"])
+            handler_class = getattr(module, handler_cls)
             chat_handler = handler_class(clip_model_path=str(self.vision_path))
 
         print(
@@ -118,7 +133,7 @@ class SilaVisionEngine:
     @staticmethod
     def _get_base64_image(image_path: Path) -> str:
         """Converts local files to a pure base64 string buffer."""
-        img = Image.open(image_path)
+        img: Image.Image = Image.open(image_path)
         if img.mode != "RGB":
             img = img.convert("RGB")
 
@@ -157,7 +172,15 @@ class SilaVisionEngine:
                 temperature=0.1,
             )
             # Correct dict accessor path for llama-cpp-python
-            raw_text = response["choices"][0]["message"]["content"]
+            raw_text = ""
+            if isinstance(response, dict):
+                choices = response.get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    msg = choices[0].get("message", {})
+                    if isinstance(msg, dict):
+                        content = msg.get("content", "")
+                        if isinstance(content, str):
+                            raw_text = content
 
             # Markdown block cleanup
             if "```json" in raw_text:
@@ -172,13 +195,14 @@ class SilaVisionEngine:
 
 
 class SilaEmbeddingEngine:
-    def __init__(self, embedding_type: EmbeddingType):
+    def __init__(self, embedding_type: EmbeddingType) -> None:
 
         self.embedding_type = embedding_type
         model_name = EMBEDDING_MODEL_NAME[embedding_type]
         if not model_name:
             raise ValueError(f"Unsupported embedding type: {embedding_type}")
 
+        device = "cpu"
         if torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
@@ -211,7 +235,7 @@ class SilaEmbeddingEngine:
 
         try:
             embeddings = self.embedding_model.encode(input_data)
-            return embeddings.tolist()
+            return cast(list[float], embeddings.tolist())
         except Exception as e:
             logger.error(f"Failed to generate vector: {e}")
             raise e

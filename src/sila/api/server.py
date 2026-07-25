@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 # Global engine instance for lazy-loading memory persistence
-_SEARCH_ENGINE = None
+_SEARCH_ENGINE: SilaHybridSearchEngine | None = None
 
 
 class UndoRequest(BaseModel):
@@ -80,7 +80,7 @@ def search_media(
 
 
 @app.get("/api/proxy/{capsule_id}")
-def proxy_image(capsule_id: str):
+def proxy_image(capsule_id: str) -> FileResponse:
     """Serves the thumbnail image for a specific capsule."""
     image_path = FRAMES_DIR / f"{capsule_id}.jpg"
     if not image_path.exists():
@@ -89,10 +89,11 @@ def proxy_image(capsule_id: str):
 
 
 @app.get("/api/stream/{parent_id}")
-def stream_media(parent_id: str):
+def stream_media(parent_id: str) -> FileResponse:
     """Streams the original source media file for deep viewing."""
     try:
         with SilaSQLiteClient() as db:
+            assert db.conn is not None
             cursor = db.conn.cursor()
             cursor.execute("SELECT filepath FROM media WHERE sila_id = ?", (parent_id,))
             row = cursor.fetchone()
@@ -124,6 +125,7 @@ def get_all_media(limit: int = 100) -> list[dict[str, Any]]:
     """
     try:
         with SilaSQLiteClient() as db:
+            assert db.conn is not None
             cursor = db.conn.cursor()
 
             # 1. Fetch parents
@@ -145,7 +147,7 @@ def get_all_media(limit: int = 100) -> list[dict[str, Any]]:
             )
             capsule_rows = cursor.fetchall()
 
-            capsules_by_parent = {}
+            capsules_by_parent: dict[str, list[dict[str, Any]]] = {}
             for crow in capsule_rows:
                 pid = crow["parent_sila_id"]
 
@@ -203,6 +205,7 @@ def export_media(payload: ExportRequest) -> dict[str, Any]:
 
     symlinks_created = 0
     with SilaSQLiteClient() as db:
+        assert db.conn is not None
         cursor = db.conn.cursor()
 
         # Ensure export_ledger exists
@@ -252,7 +255,7 @@ def export_media(payload: ExportRequest) -> dict[str, Any]:
 
 
 @app.post("/api/undo")
-def undo_operation(payload: UndoRequest = None) -> dict[str, Any]:
+def undo_operation(payload: UndoRequest | None = None) -> dict[str, Any]:
     """
     Rolls back a symlink export via the SQLite operations ledger.
     Physically unlinks the files and removes the DB records.
@@ -263,6 +266,7 @@ def undo_operation(payload: UndoRequest = None) -> dict[str, Any]:
 
     try:
         with SilaSQLiteClient() as db:
+            assert db.conn is not None
             cursor = db.conn.cursor()
 
             # 1. Resolve "latest" to an actual operation ID

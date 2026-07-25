@@ -12,7 +12,7 @@ logger = logging.getLogger("sila.pipeline.organizer")
 
 
 class SilaSymlinkOrganizer:
-    def __init__(self, workspace_name: str = "Sila Exports"):
+    def __init__(self, workspace_name: str = "Sila Exports") -> None:
         self.workspace_dir = Path.cwd() / workspace_name
         self.db = SilaSQLiteClient()
 

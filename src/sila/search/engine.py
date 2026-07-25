@@ -12,12 +12,13 @@ from src.sila.core.constants import (
 from src.sila.core.llm import SilaEmbeddingEngine
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.db.lancedb_client import SilaLanceDBClient
+from typing import cast
 
 logger = logging.getLogger("sila.search.engine")
 
 
 class SilaHybridSearchEngine:
-    def __init__(self):
+    def __init__(self) -> None:
         self.sqlite_client = SilaSQLiteClient()
         self.lancedb_client = SilaLanceDBClient()
 
@@ -65,11 +66,13 @@ class SilaHybridSearchEngine:
 
     @staticmethod
     def _score_rrf(
-        lexical: list[dict], visual: list[dict], conceptual: list[dict]
+        lexical: list[dict[str, Any]],
+        visual: list[dict[str, Any]],
+        conceptual: list[dict[str, Any]],
     ) -> dict[str, float]:
         """Mathematically merges disparate ranking lists based on position, not raw score."""
         k = 60
-        scores = {}
+        scores: dict[str, float] = {}
 
         # Score Track 1 (Includes exact-match density bonus)
         for rank, item in enumerate(lexical):
@@ -100,7 +103,10 @@ class SilaHybridSearchEngine:
         try:
             # Strip trailing white spaces and clear Markdown text escape characters (\_)
             cleaned_tags = raw_tags.strip().replace("\\_", "_")
-            return json.loads(cleaned_tags)
+            parsed = json.loads(cleaned_tags)
+            if isinstance(parsed, dict):
+                return cast(dict[str, Any], parsed)
+            return {"raw_output": raw_tags.strip()}
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(
                 f"Malformation caught during cognitive tags serialization: {e}. Falling back to raw block."
@@ -122,6 +128,7 @@ class SilaHybridSearchEngine:
         parents: dict[str, dict[str, Any]] = {}
 
         with self.sqlite_client as db:
+            assert db.conn is not None
             cursor = db.conn.cursor()
 
             for cid in sorted_cids:

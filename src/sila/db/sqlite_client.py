@@ -4,21 +4,23 @@ from typing import Any
 
 from config import SQLITE_DB_PATH
 from src.sila.core.constants import STOP_WORDS, SearchLimits
+from pathlib import Path
+
 
 logger = logging.getLogger("sila.db.sqlite")
 
 
 class SilaSQLiteClient:
-    def __init__(self, db_path=SQLITE_DB_PATH):
+    def __init__(self, db_path: str | Path = SQLITE_DB_PATH) -> None:
         self.db_path = db_path
-        self.conn = None
+        self.conn: sqlite3.Connection | None = None
 
-    def __enter__(self):
-        self.conn = sqlite3.connect(self.db_path)
+    def __enter__(self) -> "SilaSQLiteClient":
+        self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self.conn:
             if exc_type is None:
                 self.conn.commit()
@@ -26,9 +28,10 @@ class SilaSQLiteClient:
                 self.conn.rollback()
             self.conn.close()
 
-    def initialize_schema(self):
+    def initialize_schema(self) -> None:
         """Creates tables with strict relational integrity."""
         with self as client:
+            assert client.conn is not None
             cursor = client.conn.cursor()
 
             # 1. Media Table
@@ -66,8 +69,9 @@ class SilaSQLiteClient:
             """)
             logger.info("SQLite Schema initialized.")
 
-    def upsert_media(self, media_data: dict):
+    def upsert_media(self, media_data: dict[str, Any]) -> None:
         with self as client:
+            assert client.conn is not None
             client.conn.execute(
                 """
                 INSERT OR REPLACE INTO media (sila_id, filepath, filename, file_size, created_at)
@@ -82,9 +86,10 @@ class SilaSQLiteClient:
                 ),
             )
 
-    def upsert_capsule_base(self, capsule_data: dict):
+    def upsert_capsule_base(self, capsule_data: dict[str, Any]) -> None:
         """Inserts the frame record *before* ML inference runs."""
         with self as client:
+            assert client.conn is not None
             client.conn.execute(
                 """
                 INSERT OR REPLACE INTO capsules (capsule_id, parent_sila_id, timestamp, blur_score, is_junk)
@@ -99,9 +104,10 @@ class SilaSQLiteClient:
                 ),
             )
 
-    def update_cognitive_tags(self, capsule_id: str, tags_json: str):
+    def update_cognitive_tags(self, capsule_id: str, tags_json: str) -> None:
         """Updates the frame record *after* LLaVA generates the JSON."""
         with self as client:
+            assert client.conn is not None
             client.conn.execute(
                 "UPDATE capsules SET cognitive_tags = ? WHERE capsule_id = ?",
                 (tags_json, capsule_id),
@@ -141,6 +147,7 @@ class SilaSQLiteClient:
             params.extend([like_token, like_token])
 
         with self as client:
+            assert client.conn is not None
             cursor = client.conn.execute(base_query, params)
             rows = cursor.fetchall()
 
@@ -169,16 +176,18 @@ class SilaSQLiteClient:
     ) -> int:
         """Records file operations for safe rollback."""
         with self as client:
+            assert client.conn is not None
             cursor = client.conn.cursor()
             cursor.execute(
                 "INSERT INTO operations (op_type, target_folder, payload) VALUES (?, ?, ?)",
                 (op_type, target_folder, payload_json),
             )
-            return cursor.lastrowid
+            return cursor.lastrowid if cursor.lastrowid is not None else 0
 
-    def get_last_transaction(self) -> dict:
+    def get_last_transaction(self) -> dict[str, Any]:
         """Fetches the most recent file system transaction."""
         with self as client:
+            assert client.conn is not None
             cursor = client.conn.cursor()
             cursor.execute(
                 "SELECT op_id, op_type, target_folder, payload FROM operations ORDER BY op_id DESC LIMIT 1"
@@ -186,7 +195,8 @@ class SilaSQLiteClient:
             row = cursor.fetchone()
             return dict(row) if row else {}
 
-    def delete_transaction(self, op_id: int):
+    def delete_transaction(self, op_id: int) -> None:
         """Removes a transaction record after a successful revert."""
         with self as client:
+            assert client.conn is not None
             client.conn.execute("DELETE FROM operations WHERE op_id = ?", (op_id,))

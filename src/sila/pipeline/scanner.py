@@ -26,12 +26,12 @@ logger = logging.getLogger("sila.pipeline.scanner")
 
 
 class SilaMediaScanner:
-    def __init__(self, target_directory: str):
+    def __init__(self, target_directory: str) -> None:
         self.target_dir = Path(target_directory)
         self.frame_cache = FRAMES_DIR
         self.db = SilaSQLiteClient()
 
-    def scan_and_slice(self):
+    def scan_and_slice(self) -> None:
         """Finds media, extracts representational frames using ML algorithms, and dispatches them."""
         for file_path in self.target_dir.rglob("*"):
             if file_path.suffix.lower() in VALID_MEDIA_EXTENSIONS:
@@ -94,7 +94,7 @@ class SilaMediaScanner:
             target_frames = 10
 
         # 2. Hard Cut Detection (0.4 threshold)
-        hard_cuts = []
+        hard_cuts: list[float] = []
         cmd = [
             "ffmpeg",
             "-i",
@@ -224,7 +224,7 @@ class SilaMediaScanner:
 
         return capsules_found
 
-    def _process_media_file(self, source_path: Path):
+    def _process_media_file(self, source_path: Path) -> None:
         """Determines media type, generates capsules, updates DB, and fires the DAG."""
         parent_sila_id = f"vid_{uuid.uuid4().hex[:8]}"
 

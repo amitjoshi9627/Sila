@@ -9,7 +9,7 @@ class SilaDAGDispatcher:
     @staticmethod
     def dispatch_capsule(
         capsule_id: str, image_path: str, parent_id: str, timestamp: float
-    ):
+    ) -> None:
         """
         Constructs and fires a sequential workflow (DAG).
         Vision Node -> (passes results safely) -> Embedding Node
