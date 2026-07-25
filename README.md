@@ -83,8 +83,6 @@ cd sila
 
 ```
 
-*(Note: Replace `YOUR_USERNAME` with your actual GitHub username).*
-
 ---
 
 ### Option A: The "Magic" Setup (Recommended)
