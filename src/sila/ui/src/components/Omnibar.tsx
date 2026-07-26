@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, CornerDownLeft, X, LayoutGrid, Focus, Zap } from "lucide-react";
+import { VoiceMic } from "./VoiceMic";
 
 interface OmnibarProps {
   onSearch: (query: string) => void;
@@ -148,6 +149,14 @@ export function Omnibar({ onSearch, onClear, onNavigate, isSearching, initialQue
             placeholder="consult the index…"
             className="flex-1 bg-transparent text-[16px] italic text-aesop-ink placeholder:text-aesop-ink/40 focus:outline-none"
             style={{ fontFamily: "var(--font-aesop-serif)" }}
+          />
+
+          {/* Voice mic button — always visible */}
+          <VoiceMic
+            onTranscript={(text) => {
+              setValue(text);
+              onSearch(text);
+            }}
           />
 
           <AnimatePresence mode="wait">

@@ -3,12 +3,13 @@ import { motion, AnimatePresence, useSpring, useTransform } from "framer-motion"
 import {
   Undo2, Trash2, Play, Pause, Maximize2, CornerUpLeft,
   HardDrive, Calendar, Focus, ChevronLeft, ChevronRight,
-  ArrowLeft, ArrowRight, RotateCcw, X,
+  ArrowLeft, ArrowRight, RotateCcw, X, ZoomIn, ZoomOut, Eye,
 } from "lucide-react";
 import type { ParentMedia } from "../types";
 import { imageUrlFor, setParentJunkStatus } from "../lib/api";
 
 import { CustomMediaPlayer } from "./CustomMediaPlayer";
+import { DeepPlayerModal } from "./DeepPlayerModal";
 
 export type CullMode = "lobby" | "swiping" | "expanded-keepers" | "expanded-junk";
 
@@ -22,6 +23,7 @@ interface CullingStudioProps {
   setMode: (mode: CullMode) => void;
   reviewedIds: Set<string>;
   onToggleReviewed: (parentId: string, reviewed: boolean) => void;
+  onClose?: () => void;
 }
 
 const formatBytes = (bytes: number) => {
@@ -82,10 +84,11 @@ function VideoPlayer({ parentId, capsules = [], onClose }: { parentId: string; c
 // ─── EXPANDED GRID VIEW ──────────────────────────────────────────────────────
 
 function ExpandedView({
-  mode, keepers, junk, setMode, onRescue,
+  mode, keepers, junk, setMode, onRescue, onSelectMedia,
 }: {
   mode: CullMode; keepers: ParentMedia[]; junk: ParentMedia[];
   setMode: (m: CullMode) => void; onRescue: (id: string) => void;
+  onSelectMedia?: (item: ParentMedia) => void;
 }) {
   const isKeepers = mode === "expanded-keepers";
   const items = isKeepers ? keepers : junk;
@@ -122,31 +125,49 @@ function ExpandedView({
 
       {/* Grid */}
       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-[2px] p-[2px]">
-        {items.map((p, idx) => (
-          <motion.div
-            key={p.parent_id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: idx * 0.02, duration: 0.3 }}
-            className="relative aspect-square overflow-hidden group cursor-pointer"
-            onClick={() => !isKeepers && onRescue(p.parent_id)}
-          >
-            <img
-              src={p.capsules && p.capsules.length > 0 ? imageUrlFor(p.capsules[0].capsule_id) : `${API_BASE}/stream/${p.parent_id}`}
-              className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.03] ${
-                !isKeepers ? "grayscale opacity-40 group-hover:grayscale-0 group-hover:opacity-80" : "opacity-75 hover:opacity-100"
-              }`}
-            />
-            {/* Rescue overlay for junk */}
-            {!isKeepers && (
-              <div className="absolute inset-0 flex items-end justify-center pb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <span className="flex items-center gap-1 bg-[--color-aesop-paper]/90 backdrop-blur-sm px-2 py-1 text-[7px] uppercase tracking-[0.2em] text-emerald-700 font-bold">
-                  <RotateCcw size={8} /> Rescue
-                </span>
-              </div>
-            )}
-          </motion.div>
-        ))}
+        {items.map((p, idx) => {
+          const maxFocus = p.capsules && p.capsules.length > 0 ? Math.max(...p.capsules.map((c) => c.blur_score)) : 0;
+          return (
+            <motion.div
+              key={p.parent_id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: idx * 0.02, duration: 0.3 }}
+              className="relative aspect-square overflow-hidden group cursor-pointer"
+              onClick={() => {
+                if (!isKeepers) {
+                  onRescue(p.parent_id);
+                } else if (onSelectMedia) {
+                  onSelectMedia(p);
+                }
+              }}
+            >
+              <img
+                src={p.capsules && p.capsules.length > 0 ? imageUrlFor(p.capsules[0].capsule_id) : `${API_BASE}/stream/${p.parent_id}`}
+                className={`w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.03] ${
+                  !isKeepers ? "grayscale opacity-40 group-hover:grayscale-0 group-hover:opacity-80" : "opacity-75 hover:opacity-100"
+                }`}
+              />
+              {/* Focus score pill */}
+              {p.media_type === "photo" && maxFocus > 0 && (
+                <div className="absolute top-1.5 right-1.5 z-10 bg-black/75 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] font-mono border border-white/10 flex items-center gap-1">
+                  <Focus size={8} className={maxFocus >= 0.7 ? "text-emerald-400" : maxFocus >= 0.3 ? "text-amber-400" : "text-red-400"} />
+                  <span className={maxFocus >= 0.7 ? "text-emerald-400 font-bold" : maxFocus >= 0.3 ? "text-amber-400 font-bold" : "text-red-400 font-bold"}>
+                    {(maxFocus * 100).toFixed(0)}%
+                  </span>
+                </div>
+              )}
+              {/* Rescue overlay for junk */}
+              {!isKeepers && (
+                <div className="absolute inset-0 flex items-end justify-center pb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <span className="flex items-center gap-1 bg-[--color-aesop-paper]/90 backdrop-blur-sm px-2 py-1 text-[7px] uppercase tracking-[0.2em] text-emerald-700 font-bold">
+                    <RotateCcw size={8} /> Rescue
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          );
+        })}
       </div>
     </motion.div>
   );
@@ -415,12 +436,21 @@ function SwipingView({
   const [swipeDir, setSwipeDir] = useState<"left" | "right" | null>(null);
   const [exitDir, setExitDir] = useState<"left" | "right" | null>(null);
   const [showVideo, setShowVideo] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [inspectModalItem, setInspectModalItem] = useState<ParentMedia | null>(null);
 
-  // When item changes, close any open video player
-  useEffect(() => { setShowVideo(false); }, [currentItem?.parent_id]);
+  // When item changes, reset state
+  useEffect(() => {
+    setShowVideo(false);
+    setZoom(1);
+  }, [currentItem?.parent_id]);
 
   const totalReviewed = library.length - queue.length;
   const total = library.length;
+
+  const maxFocus = currentItem?.capsules && currentItem.capsules.length > 0
+    ? Math.max(...currentItem.capsules.map((c) => c.blur_score))
+    : 0;
 
   // Kinematic fly-off swipe trail
   const handleTrash = () => {
@@ -519,16 +549,81 @@ function SwipingView({
                 className="w-full flex flex-col items-center gap-4 min-h-0"
               >
                 {/* Main thumbnail / video player area */}
-                <div className="relative w-full flex-1 min-h-0 max-h-[46vh] flex items-center justify-center">
-                  {/* Thumbnail image (always present as background) */}
-                  <img
-                    src={currentItem.capsules && currentItem.capsules.length > 0 ? imageUrlFor(currentItem.capsules[0].capsule_id) : `${API_BASE}/stream/${currentItem.parent_id}`}
-                    className="max-h-full max-w-full object-contain rounded-sm shadow-[0_8px_40px_rgba(0,0,0,0.6)]"
-                    style={{
-                      filter: swipeDir === "left" ? "grayscale(60%) brightness(0.8)" : swipeDir === "right" ? "brightness(1.05) saturate(1.1)" : undefined,
-                      transition: "filter 0.18s ease",
-                    }}
-                  />
+                <div className="relative w-full flex-1 min-h-0 max-h-[46vh] flex items-center justify-center overflow-hidden">
+                  {/* Focus Score Badge (top-left) */}
+                  {currentItem && currentItem.media_type === "photo" && maxFocus > 0 && (
+                    <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 font-mono text-[9.5px]">
+                      <Focus
+                        size={11}
+                        className={maxFocus >= 0.7 ? "text-emerald-400" : maxFocus >= 0.3 ? "text-amber-400" : "text-red-400"}
+                      />
+                      <span className="text-white/50">Focus:</span>
+                      <span className={maxFocus >= 0.7 ? "text-emerald-400 font-bold" : maxFocus >= 0.3 ? "text-amber-400 font-bold" : "text-red-400 font-bold"}>
+                        {(maxFocus * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Zoom Controls HUD (top-right) */}
+                  {currentItem.media_type === "photo" && (
+                    <div className="absolute top-3 right-3 z-30 flex items-center gap-2 bg-black/75 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 font-mono text-[9.5px] text-white/80">
+                      <button
+                        onClick={() => setZoom((z) => Math.max(1, z - 0.5))}
+                        disabled={zoom <= 1}
+                        className="hover:text-white disabled:opacity-30 transition-colors cursor-pointer"
+                        title="Zoom Out"
+                      >
+                        <ZoomOut size={12} />
+                      </button>
+                      <span className="min-w-[32px] text-center font-bold">
+                        {Math.round(zoom * 100)}%
+                      </span>
+                      <button
+                        onClick={() => setZoom((z) => Math.min(3.5, z + 0.5))}
+                        disabled={zoom >= 3.5}
+                        className="hover:text-white disabled:opacity-30 transition-colors cursor-pointer"
+                        title="Zoom In"
+                      >
+                        <ZoomIn size={12} />
+                      </button>
+                      {zoom > 1 && (
+                        <button
+                          onClick={() => setZoom(1)}
+                          className="ml-1 text-[8px] uppercase tracking-wider text-amber-400 hover:underline cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <span className="text-white/20">|</span>
+                      <button
+                        onClick={() => setInspectModalItem(currentItem)}
+                        className="hover:text-amber-300 transition-colors cursor-pointer flex items-center gap-1 text-[9px] uppercase tracking-wider"
+                        title="Full Deep Inspection"
+                      >
+                        <Maximize2 size={11} />
+                        Inspect
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Draggable & Zoomable Photo Container */}
+                  <motion.div
+                    drag={zoom > 1}
+                    dragConstraints={{ left: -350, right: 350, top: -250, bottom: 250 }}
+                    className="w-full h-full flex items-center justify-center p-2"
+                  >
+                    <motion.img
+                      src={currentItem.capsules && currentItem.capsules.length > 0 ? imageUrlFor(currentItem.capsules[0].capsule_id) : `${API_BASE}/stream/${currentItem.parent_id}`}
+                      animate={{ scale: zoom }}
+                      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                      className={`max-h-[44vh] max-w-full object-contain rounded-sm shadow-[0_8px_40px_rgba(0,0,0,0.6)] ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
+                      style={{
+                        filter: swipeDir === "left" ? "grayscale(60%) brightness(0.8)" : swipeDir === "right" ? "brightness(1.05) saturate(1.1)" : undefined,
+                        transition: "filter 0.18s ease",
+                      }}
+                      draggable={false}
+                    />
+                  </motion.div>
 
                   {/* Inline video player overlay */}
                   <AnimatePresence>
@@ -613,6 +708,14 @@ function SwipingView({
                     {currentItem.filename}
                   </span>
                 </div>
+
+                {/* Full Deep Inspection Modal */}
+                {inspectModalItem && (
+                  <DeepPlayerModal
+                    item={inspectModalItem}
+                    onClose={() => setInspectModalItem(null)}
+                  />
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -693,6 +796,7 @@ export function CullingStudio({
   setMode,
   reviewedIds,
   onToggleReviewed,
+  onClose,
 }: CullingStudioProps) {
   const [queue, setQueue] = useState<ParentMedia[]>(() =>
     library.filter(
@@ -702,6 +806,7 @@ export function CullingStudio({
     )
   );
   const [history, setHistory] = useState<{ item: ParentMedia; prevJunkStatus: number; decision: number }[]>([]);
+  const [selectedModalItem, setSelectedModalItem] = useState<ParentMedia | null>(null);
 
   useEffect(() => {
     setQueue(
@@ -759,44 +864,72 @@ export function CullingStudio({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedModalItem) {
+          setSelectedModalItem(null);
+        } else if (mode !== "lobby") {
+          setMode("lobby");
+        } else if (onClose) {
+          onClose();
+        }
+        return;
+      }
+
       if (mode !== "swiping") return;
       if (e.key === "ArrowLeft") triggerDecision(1);
       if (e.key === "ArrowRight") triggerDecision(0);
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") handleUndoAction();
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") handleUndoAction();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mode, triggerDecision, handleUndoAction]);
+  }, [mode, triggerDecision, handleUndoAction, setMode, onClose, selectedModalItem]);
 
   return (
-    <AnimatePresence mode="wait">
-      {(mode === "expanded-keepers" || mode === "expanded-junk") && (
-        <ExpandedView key="expanded" mode={mode} keepers={keepers} junk={junk} setMode={setMode} onRescue={handleRescue} />
-      )}
-      {mode === "lobby" && (
-        <LobbyView
-          key="lobby"
-          queue={queue}
-          library={library}
-          keepers={keepers}
-          junk={junk}
-          setMode={setMode}
-          onHardDelete={onHardDelete}
-          onRescue={handleRescue}
+    <>
+      <AnimatePresence mode="wait">
+        {(mode === "expanded-keepers" || mode === "expanded-junk") && (
+          <ExpandedView
+            key="expanded"
+            mode={mode}
+            keepers={keepers}
+            junk={junk}
+            setMode={setMode}
+            onRescue={handleRescue}
+            onSelectMedia={(item) => setSelectedModalItem(item)}
+          />
+        )}
+        {mode === "lobby" && (
+          <LobbyView
+            key="lobby"
+            queue={queue}
+            library={library}
+            keepers={keepers}
+            junk={junk}
+            setMode={setMode}
+            onHardDelete={onHardDelete}
+            onRescue={handleRescue}
+          />
+        )}
+        {mode === "swiping" && (
+          <SwipingView
+            key="swiping"
+            queue={queue}
+            library={library}
+            history={history}
+            currentItem={currentItem ?? null}
+            triggerDecision={triggerDecision}
+            handleUndoAction={handleUndoAction}
+            setMode={setMode}
+          />
+        )}
+      </AnimatePresence>
+
+      {selectedModalItem && (
+        <DeepPlayerModal
+          item={selectedModalItem}
+          onClose={() => setSelectedModalItem(null)}
         />
       )}
-      {mode === "swiping" && (
-        <SwipingView
-          key="swiping"
-          queue={queue}
-          library={library}
-          history={history}
-          currentItem={currentItem ?? null}
-          triggerDecision={triggerDecision}
-          handleUndoAction={handleUndoAction}
-          setMode={setMode}
-        />
-      )}
-    </AnimatePresence>
+    </>
   );
 }

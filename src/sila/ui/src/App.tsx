@@ -392,6 +392,7 @@ export default function App() {
                 setMode={setCullMode}
                 reviewedIds={reviewedIds}
                 onToggleReviewed={handleToggleReviewed}
+                onClose={() => setLocation("/library")}
                 onStatusUpdate={(parentId, isJunk) => {
                   setLibrary(prev => prev.map(p => 
                     p.parent_id === parentId 

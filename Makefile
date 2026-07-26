@@ -30,6 +30,24 @@ install: info
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
 		export PATH="$$HOME/.local/bin:$$PATH"; \
 	fi
+	@if [ -z "$(HAS_DOCKER)" ]; then \
+		if ! command -v redis-server > /dev/null 2>&1; then \
+			echo "⚠️ Docker not detected and redis-server not found. Installing Redis..."; \
+			if [ "$(OS)" = "Darwin" ]; then \
+				echo "🍎 Installing Redis via Homebrew..."; \
+				brew install redis || echo "❌ Failed to install Redis."; \
+			elif [ "$(OS)" = "Linux" ]; then \
+				if command -v apt-get > /dev/null 2>&1; then \
+					echo "🐧 Installing Redis via apt..."; \
+					sudo apt-get update && sudo apt-get install -y redis-server || echo "❌ Failed to install Redis."; \
+				else \
+					echo "❌ Unsupported Linux package manager. Please install redis-server manually."; \
+				fi; \
+			else \
+				echo "🪟 Non-mac/Linux OS detected ($$OS). Please install Redis manually (e.g., using WSL on Windows) or run Docker."; \
+			fi; \
+		fi; \
+	fi
 	@echo "🔄 Syncing Python environment..."
 	@uv sync
 	@$(MAKE) download-models

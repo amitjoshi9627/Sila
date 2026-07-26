@@ -10,6 +10,8 @@ import {
   Minimize,
   RotateCcw,
   RotateCw,
+  SkipBack,
+  SkipForward,
   ZoomIn,
   ZoomOut,
   RefreshCw,
@@ -144,6 +146,40 @@ function CustomVideoPlayer({
     );
   };
 
+  const jumpToNextClip = useCallback(() => {
+    if (!videoRef.current) return;
+    const curr = videoRef.current.currentTime;
+    if (capsules && capsules.length > 0) {
+      const sortedTimes = capsules
+        .map((c) => c.timestamp)
+        .sort((a, b) => a - b);
+      const nextTime = sortedTimes.find((t) => t > curr + 0.4);
+      if (nextTime !== undefined) {
+        videoRef.current.currentTime = nextTime;
+        setCurrentTime(nextTime);
+        return;
+      }
+    }
+    skipSeconds(5);
+  }, [capsules, videoRef, duration]);
+
+  const jumpToPrevClip = useCallback(() => {
+    if (!videoRef.current) return;
+    const curr = videoRef.current.currentTime;
+    if (capsules && capsules.length > 0) {
+      const sortedTimes = capsules
+        .map((c) => c.timestamp)
+        .sort((a, b) => a - b);
+      const prevTime = [...sortedTimes].reverse().find((t) => t < curr - 0.8);
+      if (prevTime !== undefined) {
+        videoRef.current.currentTime = prevTime;
+        setCurrentTime(prevTime);
+        return;
+      }
+    }
+    skipSeconds(-5);
+  }, [capsules, videoRef, duration]);
+
   const toggleMute = () => {
     if (!videoRef.current) return;
     const newMute = !isMuted;
@@ -222,10 +258,10 @@ function CustomVideoPlayer({
         togglePlay();
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        skipSeconds(-5);
+        jumpToPrevClip();
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
-        skipSeconds(5);
+        jumpToNextClip();
       } else if (e.code === "KeyM") {
         toggleMute();
       } else if (e.code === "KeyF") {
@@ -234,7 +270,7 @@ function CustomVideoPlayer({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [togglePlay]);
+  }, [togglePlay, jumpToPrevClip, jumpToNextClip]);
 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -343,18 +379,18 @@ function CustomVideoPlayer({
                 </button>
 
                 <button
-                  onClick={() => skipSeconds(-5)}
+                  onClick={jumpToPrevClip}
                   className="p-1.5 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
-                  title="Seek Back 5s (←)"
+                  title="Previous Clip / Sub-section (←)"
                 >
-                  <RotateCcw size={14} />
+                  <SkipBack size={15} />
                 </button>
                 <button
-                  onClick={() => skipSeconds(5)}
+                  onClick={jumpToNextClip}
                   className="p-1.5 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors cursor-pointer"
-                  title="Seek Forward 5s (→)"
+                  title="Next Clip / Sub-section (→)"
                 >
-                  <RotateCw size={14} />
+                  <SkipForward size={15} />
                 </button>
 
                 {/* Time Display */}

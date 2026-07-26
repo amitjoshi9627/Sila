@@ -1,4 +1,4 @@
-"""Sila Gateway API Web Server - The HTTP wrapper for the Tri-Modal Engine."""
+"""Sila Gateway API Web Server - The HTTP wrapper for the Tri-Modal Engine & STT."""
 
 import json
 import logging
@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config import API_TITLE, API_VERSION, EXPORTS_DIR, FRAMES_DIR
+from src.sila.core.audio import SilaAudioEngine
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.search.engine import SilaHybridSearchEngine
 
@@ -33,8 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global engine instance for lazy-loading memory persistence
+# Global engine instances for lazy-loading memory persistence
 _SEARCH_ENGINE: SilaHybridSearchEngine | None = None
+_AUDIO_ENGINE: SilaAudioEngine | None = None
 
 
 class UndoRequest(BaseModel):
@@ -49,7 +51,41 @@ class ExportRequest(BaseModel):
 @app.get("/health")
 def health_check() -> dict[str, str]:
     """Basic ping to verify the API gateway is alive."""
-    return {"status": "online", "version": "0.5.0"}
+    return {"status": "online", "version": "0.6.0"}
+
+
+@app.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
+    """
+    Accepts an audio blob (.webm, .wav, .mp3) from the browser,
+    runs local Whisper transcription, and returns the recognized text.
+    """
+    global _AUDIO_ENGINE
+
+    try:
+        # Cold Start: Load Whisper weights onto GPU/MPS on first voice search
+        if _AUDIO_ENGINE is None:
+            logger.info("Cold Start: Mounting SilaAudioEngine to Apple Metal / CUDA...")
+            _AUDIO_ENGINE = SilaAudioEngine()
+
+        logger.info(
+            f"API Routing Audio Transcription: '{file.filename}' ({file.content_type})"
+        )
+
+        # Read raw audio bytes asynchronously
+        audio_bytes = await file.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
+
+        # Transcribe via local Whisper engine
+        transcript = _AUDIO_ENGINE.transcribe(audio_bytes)
+        logger.info(f"Transcription complete: '{transcript}'")
+
+        return {"text": transcript}
+
+    except Exception as e:
+        logger.error(f"Audio transcription endpoint failure: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Voice transcription failed.")
 
 
 @app.get("/api/search")
@@ -128,9 +164,9 @@ def get_all_media(limit: int = 100) -> list[dict[str, Any]]:
             assert db.conn is not None
             cursor = db.conn.cursor()
 
-            # 1. Fetch parents
+            # 1. Fetch parents (excluding empty/0-byte files)
             cursor.execute(
-                "SELECT * FROM media ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM media WHERE file_size > 0 ORDER BY created_at DESC LIMIT ?", (limit,)
             )
             media_rows = cursor.fetchall()
 
@@ -271,7 +307,6 @@ def undo_operation(payload: UndoRequest | None = None) -> dict[str, Any]:
 
             # 1. Resolve "latest" to an actual operation ID
             if target_op == "latest":
-                # Assumes your ledger table is named `export_ledger` (adjust if named differently)
                 cursor.execute(
                     "SELECT operation_id FROM export_ledger ORDER BY created_at DESC LIMIT 1"
                 )
@@ -296,11 +331,10 @@ def undo_operation(payload: UndoRequest | None = None) -> dict[str, Any]:
                     "message": f"Operation {target_op} not found or has no symlinks.",
                 }
 
-            # 3. Physically remove the symlinks from the macOS filesystem
+            # 3. Physically remove the symlinks from the filesystem
             removed_count = 0
             for path_str in symlinks:
                 p = Path(path_str)
-                # missing_ok=True equivalent for pre-3.8 safety check
                 if p.is_symlink() or p.exists():
                     p.unlink()
                     removed_count += 1

@@ -39,7 +39,9 @@ class SilaMediaScanner:
             [
                 f
                 for f in self.target_dir.rglob("*")
-                if f.is_file() and f.suffix.lower() in VALID_MEDIA_EXTENSIONS
+                if f.is_file()
+                and f.stat().st_size > 0
+                and f.suffix.lower() in VALID_MEDIA_EXTENSIONS
             ]
         )
         total_files = len(media_files)
@@ -247,9 +249,47 @@ class SilaMediaScanner:
 
     def _process_media_file(self, source_path: Path) -> int:
         """Determines media type, generates capsules, updates DB, and fires the DAG."""
-        parent_sila_id = f"vid_{uuid.uuid4().hex[:8]}"
+        if not source_path.exists() or source_path.stat().st_size == 0:
+            logger.warning(f"Skipping empty/0-byte file: {source_path.name}")
+            return 0
 
-        # 1. Register parent media in SQLite
+        parent_sila_id = f"vid_{uuid.uuid4().hex[:8]}"
+        suffix = source_path.suffix.lower()
+        capsules_to_process = []
+
+        # 1. Extract valid frames based on media type
+        if suffix in VALID_VIDEO_EXTENSIONS:
+            capsules_to_process = self._slice_video_into_capsules(
+                source_path, parent_sila_id
+            )
+        elif suffix in VALID_PHOTO_EXTENSIONS:
+            image = cv2.imread(str(source_path.resolve()))
+            if image is None:
+                logger.warning(f"Skipping unreadable/corrupt image: {source_path.name}")
+                return 0
+
+            hasher = hashlib.blake2b(digest_size=16)
+            hasher.update(f"{parent_sila_id}_0.0".encode("utf-8"))
+            capsule_id = f"caps_{hasher.hexdigest()}"
+            thumb_path = self.frame_cache / f"{capsule_id}.jpg"
+
+            if not thumb_path.exists():
+                h, w = image.shape[:2]
+                cv2.imwrite(
+                    str(thumb_path.resolve()),
+                    cv2.resize(
+                        image,
+                        (640, int(h * (640 / w))),
+                        interpolation=cv2.INTER_AREA,
+                    ),
+                )
+            capsules_to_process.append((capsule_id, 0.0))
+
+        if not capsules_to_process:
+            logger.warning(f"No valid capsules generated for {source_path.name}, skipping DB registration.")
+            return 0
+
+        # 2. Register parent media in SQLite only after confirming valid capsules exist
         self.db.upsert_media(
             {
                 "sila_id": parent_sila_id,
@@ -260,34 +300,6 @@ class SilaMediaScanner:
             }
         )
         logger.debug(f"Registered Media: {source_path.name}")
-
-        suffix = source_path.suffix.lower()
-        capsules_to_process = []
-
-        # 2. Extract valid frames based on media type
-        if suffix in VALID_VIDEO_EXTENSIONS:
-            capsules_to_process = self._slice_video_into_capsules(
-                source_path, parent_sila_id
-            )
-        elif suffix in VALID_PHOTO_EXTENSIONS:
-            hasher = hashlib.blake2b(digest_size=16)
-            hasher.update(f"{parent_sila_id}_0.0".encode("utf-8"))
-            capsule_id = f"caps_{hasher.hexdigest()}"
-            thumb_path = self.frame_cache / f"{capsule_id}.jpg"
-
-            if not thumb_path.exists():
-                image = cv2.imread(str(source_path.resolve()))
-                if image is not None:
-                    h, w = image.shape[:2]
-                    cv2.imwrite(
-                        str(thumb_path.resolve()),
-                        cv2.resize(
-                            image,
-                            (640, int(h * (640 / w))),
-                            interpolation=cv2.INTER_AREA,
-                        ),
-                    )
-            capsules_to_process.append((capsule_id, 0.0))
 
         # 3. Save to DB and Dispatch to the Celery DAG
         dispatched_count = 0

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Play, HardDrive, Calendar, Sparkles, Zap } from "lucide-react";
+import { X, Play, HardDrive, Calendar, Sparkles, Zap, Focus } from "lucide-react";
 import type { ParentMedia } from "../types";
 import { imageUrlFor } from "../lib/api";
 
@@ -123,7 +123,14 @@ export function DeepPlayerModal({ item, onClose, onTagSearch }: DeepPlayerProps)
                   </div>
                   <div className="flex flex-col justify-center">
                     <span className="font-mono text-[11px] font-bold text-amber-50/80">{isVideo ? formatTime(capsule.timestamp) : "PHOTO"}</span>
-                    <span className="text-[9px] uppercase tracking-widest text-amber-100/40 mt-1">Focus: {capsule.blur_score.toFixed(2)}</span>
+                    {!isVideo && (
+                      <div className="flex items-center gap-1 mt-1 font-mono text-[9.5px]">
+                        <Focus size={10} className={capsule.blur_score >= 0.7 ? "text-emerald-400" : capsule.blur_score >= 0.3 ? "text-amber-400" : "text-red-400"} />
+                        <span className={capsule.blur_score >= 0.7 ? "text-emerald-400 font-bold" : capsule.blur_score >= 0.3 ? "text-amber-400 font-bold" : "text-red-400 font-bold"}>
+                          Focus: {Math.round(capsule.blur_score * 100)}%
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
