@@ -40,6 +40,10 @@ VISION_FILE = "llava-v1.5-7b-mmproj-model-f16.gguf"
 GEMMA_REPO_ID = "google/gemma-4-vision-gguf"
 GEMMA_LLM_FILE = "gemma-4b-v-q4_k_m.gguf"
 
+# --- Audio Models ---
+# Change this to scale accuracy/speed (e.g., openai/whisper-tiny.en, openai/whisper-large-v3)
+STT_MODEL_NAME = "openai/whisper-base.en"
+
 CLIP_MODEL_NAME = "sentence-transformers/clip-ViT-B-32"
 TEXT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 

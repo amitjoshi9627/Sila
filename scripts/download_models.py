@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sentence_transformers import SentenceTransformer
+from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
 from config import (
     MODEL_DIR,
@@ -15,7 +16,7 @@ from config import (
     LLM_FILE,
     VISION_FILE,
     CLIP_MODEL_NAME,
-    TEXT_EMBEDDING_MODEL_NAME,
+    TEXT_EMBEDDING_MODEL_NAME, STT_MODEL_NAME,
 )
 
 logger = logging.getLogger("sila.scripts.download_models")
@@ -97,6 +98,12 @@ def pre_fetch_models() -> None:
 
     stream_download(llm_url, MODEL_DIR / LLM_FILE)
     stream_download(vision_url, MODEL_DIR / VISION_FILE)
+
+    # 3. Audio Transcription Model (Whisper)
+    print(f"\n📦 Checking Audio Recognition Model: {STT_MODEL_NAME}...")
+    sys.stdout.flush()
+    AutoProcessor.from_pretrained(STT_MODEL_NAME, cache_dir=str(MODEL_DIR))
+    AutoModelForSpeechSeq2Seq.from_pretrained(STT_MODEL_NAME, cache_dir=str(MODEL_DIR))
 
     print("\n✅ All models verified and cached in .sila_cache! Zero-latency start ready.")
 

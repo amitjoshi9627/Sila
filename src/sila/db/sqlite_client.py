@@ -67,6 +67,8 @@ class SilaSQLiteClient:
                     payload TEXT NOT NULL
                 )
             """)
+            # 4. Clean up any corrupted or 0-byte orphan media records
+            cursor.execute("DELETE FROM media WHERE file_size IS NULL OR file_size = 0")
             logger.info("SQLite Schema initialized.")
 
     def upsert_media(self, media_data: dict[str, Any]) -> None:
