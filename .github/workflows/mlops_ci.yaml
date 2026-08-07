@@ -30,17 +30,18 @@ jobs:
         enable-cache: true
 
     - name: Install Dependencies
-      # Leverages our new cross-platform Makefile to sync python and node packages
-      run: make install
+      run: |
+        uv sync
+        cd src/sila/ui && npm install
 
     - name: Run Code Quality Checks
       # Runs ruff formatting, ruff linting, and mypy type checks
       run: make lint
 
-    - name: Run Automated ML Tests
-      # Runs our mocked pipeline to ensure no structural code is broken
-      run: uv run pytest tests/
+    - name: Run Unit Tests
+      # Runs mocked unit tests without pulling heavy ML model weights
+      run: uv run pytest tests/ --ignore=tests/integration
 
     - name: Verify UI Build
       # Ensures the React frontend successfully compiles without TS/syntax errors
-      run: cd src/sila/ui && npm ci && npm run build
+      run: cd src/sila/ui && npm run build

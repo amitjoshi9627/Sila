@@ -39,13 +39,13 @@ class SilaSharpnessAnalyzer:
             gray = self._load_image(image_path)
         except ValueError as e:
             logger.error(f"Failed to load image for sharpness check: {e}")
-            return SharpnessResult(0, 0.0, "Error")
+            return SharpnessResult(0.0, 0.0, "Error")
 
         patch_scores = self._compute_patch_scores(gray)
 
         if len(patch_scores) == 0:
             return SharpnessResult(
-                overall_score=0,
+                overall_score=0.0,
                 focus_coverage=0.0,
                 verdict="Blurry",
             )
@@ -55,7 +55,7 @@ class SilaSharpnessAnalyzer:
         verdict = self._quality_label(overall)
 
         return SharpnessResult(
-            overall_score=overall,
+            overall_score=round(overall, 3),
             focus_coverage=round(coverage, 2),
             verdict=verdict,
         )
@@ -120,8 +120,8 @@ class SilaSharpnessAnalyzer:
             [
                 500,
                 15000,
-            ],  # These bounds will need slight tuning based on specific dataset
-            [0, 1],
+            ],  # These bounds will need slight tuning based on your specific dataset
+            [0.0, 1.0],
         )
         return float(np.clip(score, 0.0, 1.0))
 

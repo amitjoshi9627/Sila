@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import numpy as np
 
+from typing import Any
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
@@ -38,7 +39,7 @@ class SilaAudioEngine:
         # Load Processor and Model from our isolated cache.
         # Use local_files_only=True first to prevent unnecessary HF Hub HTTP HEAD requests.
         try:
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = AutoProcessor.from_pretrained(  # type: ignore[no-untyped-call]
                 self.model_id, cache_dir=str(self.cache_dir), local_files_only=True
             )
             self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -52,7 +53,7 @@ class SilaAudioEngine:
             logger.info(
                 f"Model not cached locally. Downloading {self.model_id} from Hugging Face..."
             )
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = AutoProcessor.from_pretrained(  # type: ignore[no-untyped-call]
                 self.model_id, cache_dir=str(self.cache_dir), local_files_only=False
             )
             self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -117,10 +118,19 @@ class SilaAudioEngine:
                 return ""
 
             # Run inference
-            result = self.pipe(audio_array)
+            result: Any = self.pipe(audio_array)
 
             # Clean up the output string
-            transcription = result.get("text", "").strip()
+            if isinstance(result, dict):
+                transcription = str(result.get("text", "")).strip()
+            elif (
+                isinstance(result, list)
+                and len(result) > 0
+                and isinstance(result[0], dict)
+            ):
+                transcription = str(result[0].get("text", "")).strip()
+            else:
+                transcription = ""
             return transcription
 
         except Exception as e:

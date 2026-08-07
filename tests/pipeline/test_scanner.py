@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import shutil
 
+from src.sila.vision.sharpness import SharpnessResult
 from src.sila.pipeline.scanner import SilaMediaScanner
 
 @pytest.fixture
@@ -38,9 +39,13 @@ def test_media_scanner(mock_dispatcher_class, mock_sqlite_class, mock_imwrite, m
     # Initialize the scanner
     scanner = SilaMediaScanner(temp_media_dir)
     
-    # Mock the internal calculate blur method so we don't need real images
-    with patch.object(scanner, '_calculate_blur_score', return_value=0.5):
-        scanner.scan_and_slice()
+    # Mock the sharpness analyzer so we don't need real image sharpness processing
+    mock_sharpness = MagicMock()
+    mock_sharpness.analyze.return_value = SharpnessResult(
+        overall_score=0.85, focus_coverage=0.9, verdict="Good"
+    )
+    scanner.sharpness_analyzer = mock_sharpness
+    scanner.scan_and_slice()
         
     # Verify the database was called to register the media
     mock_db.upsert_media.assert_called_once()

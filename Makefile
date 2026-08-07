@@ -50,10 +50,9 @@ install: info
 	fi
 	@echo "🔄 Syncing Python environment..."
 	@uv sync
-	@$(MAKE) download-models
 	@echo "📦 Installing UI dependencies..."
 	@cd src/sila/ui && npm install
-	@echo "✅ Installation complete! Run 'make start' to launch Sila."
+	@echo "✅ Installation complete! Run 'make download-models' if you wish to pre-fetch weights, or 'make start' to launch Sila."
 
 
 
@@ -108,6 +107,12 @@ lint:
 lint-fix:
 	uv run ruff check src/ --fix
 	uv run ruff format src/
+
+test:
+	uv run pytest tests/ --ignore=tests/integration
+
+test-all:
+	uv run pytest tests/
 
 api:
 	uv run python -m src.sila.main ui
