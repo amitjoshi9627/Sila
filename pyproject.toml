@@ -1,6 +1,6 @@
 [project]
 name = "sila"
-version = "0.6.0"
+version = "0.6.1"
 description = "Sift your raw footage chaos into searchable, reversible, local-first media organization."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import numpy as np
 
+from typing import Any
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
@@ -38,7 +39,7 @@ class SilaAudioEngine:
         # Load Processor and Model from our isolated cache.
         # Use local_files_only=True first to prevent unnecessary HF Hub HTTP HEAD requests.
         try:
-            self.processor = AutoProcessor.from_pretrained(
+            self.processor = AutoProcessor.from_pretrained(  # type: ignore[no-untyped-call]
                 self.model_id, cache_dir=str(self.cache_dir), local_files_only=True
             )
             self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -49,8 +50,10 @@ class SilaAudioEngine:
                 local_files_only=True,
             ).to(self.device)
         except Exception:
-            logger.info(f"Model not cached locally. Downloading {self.model_id} from Hugging Face...")
-            self.processor = AutoProcessor.from_pretrained(
+            logger.info(
+                f"Model not cached locally. Downloading {self.model_id} from Hugging Face..."
+            )
+            self.processor = AutoProcessor.from_pretrained(  # type: ignore[no-untyped-call]
                 self.model_id, cache_dir=str(self.cache_dir), local_files_only=False
             )
             self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -90,18 +93,19 @@ class SilaAudioEngine:
             cmd = [
                 "ffmpeg",
                 "-y",
-                "-i", temp_in_path,
-                "-f", "f32le",
-                "-acodec", "pcm_f32le",
-                "-ar", "16000",
-                "-ac", "1",
-                "-"
+                "-i",
+                temp_in_path,
+                "-f",
+                "f32le",
+                "-acodec",
+                "pcm_f32le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-",
             ]
-            p = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
 
             if p.returncode != 0:
@@ -114,10 +118,19 @@ class SilaAudioEngine:
                 return ""
 
             # Run inference
-            result = self.pipe(audio_array)
+            result: Any = self.pipe(audio_array)
 
             # Clean up the output string
-            transcription = result.get("text", "").strip()
+            if isinstance(result, dict):
+                transcription = str(result.get("text", "")).strip()
+            elif (
+                isinstance(result, list)
+                and len(result) > 0
+                and isinstance(result[0], dict)
+            ):
+                transcription = str(result[0].get("text", "")).strip()
+            else:
+                transcription = ""
             return transcription
 
         except Exception as e:

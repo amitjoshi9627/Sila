@@ -10,18 +10,15 @@ import uuid
 
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.pipeline.dispatcher import SilaDAGDispatcher
+from src.sila.vision.sharpness import SilaSharpnessAnalyzer
+
 from config import (
     FRAMES_DIR,
     VALID_MEDIA_EXTENSIONS,
     VALID_VIDEO_EXTENSIONS,
     VALID_PHOTO_EXTENSIONS,
 )
-from src.sila.core.constants import (
-    MIN_VARIANCE_THRESHOLD,
-    MAX_VARIANCE_THRESHOLD,
-    SCENE_SIMILARITY_THRESHOLD,
-)
-
+from src.sila.core.constants import SCENE_SIMILARITY_THRESHOLD
 from tqdm import tqdm
 
 logger = logging.getLogger("sila.pipeline.scanner")
@@ -32,6 +29,7 @@ class SilaMediaScanner:
         self.target_dir = Path(target_directory)
         self.frame_cache = FRAMES_DIR
         self.db = SilaSQLiteClient()
+        self.sharpness_analyzer = SilaSharpnessAnalyzer()
 
     def scan_and_slice(self) -> None:
         """Finds media, extracts representational frames using ML algorithms, and dispatches them."""
@@ -59,25 +57,6 @@ class SilaMediaScanner:
             dynamic_ncols=True,
         ):
             self._process_media_file(file_path)
-
-    @staticmethod
-    def _calculate_blur_score(image_path: Path) -> float:
-        """Computes spatial sharpness using Laplacian variance and normalizes to a 0.0 - 1.0 scale."""
-        image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-        if image is None:
-            return 0.0
-
-        raw_variance = float(cv2.Laplacian(image, cv2.CV_64F).var())
-
-        if raw_variance <= MIN_VARIANCE_THRESHOLD:
-            return 0.0
-        elif raw_variance >= MAX_VARIANCE_THRESHOLD:
-            return 1.0
-
-        normalized_score = (raw_variance - MIN_VARIANCE_THRESHOLD) / (
-            MAX_VARIANCE_THRESHOLD - MIN_VARIANCE_THRESHOLD
-        )
-        return round(normalized_score, 3)
 
     @staticmethod
     def _get_video_duration(video_path: Path) -> float:
@@ -286,7 +265,9 @@ class SilaMediaScanner:
             capsules_to_process.append((capsule_id, 0.0))
 
         if not capsules_to_process:
-            logger.warning(f"No valid capsules generated for {source_path.name}, skipping DB registration.")
+            logger.warning(
+                f"No valid capsules generated for {source_path.name}, skipping DB registration."
+            )
             return 0
 
         # 2. Register parent media in SQLite only after confirming valid capsules exist
@@ -307,29 +288,37 @@ class SilaMediaScanner:
             thumb_path = self.frame_cache / f"{capsule_id}.jpg"
 
             if thumb_path.exists():
-                # Calculate Laplacian variance
-                blur = self._calculate_blur_score(thumb_path)
+                # Evaluate sharpness with the patch-based analyzer
+                sharpness_result = self.sharpness_analyzer.analyze(thumb_path)
+                score = sharpness_result.overall_score
+                is_junk = 1 if score < 0.3 else 0
 
-                # Create the base row in SQLite using our OOP method
+                # Create the base row in SQLite
                 self.db.upsert_capsule_base(
                     {
                         "capsule_id": capsule_id,
                         "parent_id": parent_sila_id,
                         "timestamp": ts,
-                        "blur_score": blur,
-                        "is_junk": 1 if blur == 0.0 else 0,
+                        "blur_score": score,
+                        "is_junk": is_junk,
                     }
                 )
 
-                logger.debug(f"Dispatching DAG for capsule: {capsule_id}")
-
-                # Pass into the new chained DAG dispatcher instead of the old raw task
-                SilaDAGDispatcher.dispatch_capsule(
-                    capsule_id=capsule_id,
-                    image_path=str(thumb_path.resolve()),
-                    parent_id=parent_sila_id,
-                    timestamp=ts,
-                )
-                dispatched_count += 1
+                if is_junk == 0:
+                    logger.debug(
+                        f"Dispatching DAG for sharp capsule: {capsule_id} (Score: {score})"
+                    )
+                    SilaDAGDispatcher.dispatch_capsule(
+                        capsule_id=capsule_id,
+                        image_path=str(thumb_path.resolve()),
+                        parent_id=parent_sila_id,
+                        timestamp=ts,
+                    )
+                    dispatched_count += 1
+                else:
+                    logger.debug(
+                        f"Skipping ML DAG for junk capsule: {capsule_id} "
+                        f"(Score: {score}, Verdict: {sharpness_result.verdict})"
+                    )
 
         return dispatched_count
