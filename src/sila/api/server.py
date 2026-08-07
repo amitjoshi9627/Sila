@@ -166,7 +166,8 @@ def get_all_media(limit: int = 100) -> list[dict[str, Any]]:
 
             # 1. Fetch parents (excluding empty/0-byte files)
             cursor.execute(
-                "SELECT * FROM media WHERE file_size > 0 ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM media WHERE file_size > 0 ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             )
             media_rows = cursor.fetchall()
 

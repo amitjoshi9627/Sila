@@ -49,7 +49,9 @@ class SilaAudioEngine:
                 local_files_only=True,
             ).to(self.device)
         except Exception:
-            logger.info(f"Model not cached locally. Downloading {self.model_id} from Hugging Face...")
+            logger.info(
+                f"Model not cached locally. Downloading {self.model_id} from Hugging Face..."
+            )
             self.processor = AutoProcessor.from_pretrained(
                 self.model_id, cache_dir=str(self.cache_dir), local_files_only=False
             )
@@ -90,18 +92,19 @@ class SilaAudioEngine:
             cmd = [
                 "ffmpeg",
                 "-y",
-                "-i", temp_in_path,
-                "-f", "f32le",
-                "-acodec", "pcm_f32le",
-                "-ar", "16000",
-                "-ac", "1",
-                "-"
+                "-i",
+                temp_in_path,
+                "-f",
+                "f32le",
+                "-acodec",
+                "pcm_f32le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-",
             ]
-            p = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
 
             if p.returncode != 0:
