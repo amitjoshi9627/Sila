@@ -31,6 +31,9 @@
 * **📸 Non-Destructive "Zero-Byte" Virtual Albums**: Instantly exports selected search results into `./Sila Exports/<Album_Name>` via filesystem symbolic links. Takes 0 extra disk space and includes a 1-click **Undo Transaction Rollback**.
 * **👁️ Local Vision Language Model**: Automated scene captioning, lighting analysis, and cognitive tag generation using LLaVA 1.5 7B GGUF.
 * **🎨 Premium Aesthetic UI**: High-speed culling workspace built with React, Vite, Framer Motion, glassmorphism, and custom Aesop-inspired typography.
+* **🎤 Local Voice Search**: Hands-free voice querying integrated directly into the omnibar using a local Whisper STT engine (`openai/whisper-base.en`).
+* **📐 Patch-Based Sharpness Analysis**: Auto-detect blurry and out-of-focus media frames using local Tenengrad/Sobel variance analysis optimized for shallow/variable depth-of-field.
+* **📊 Application Performance Monitoring**: Real-time telemetry dashboard with query profiling, execution waterfalls, and latency ledgers directly in the UI.
 * **🛡️ Hardened Cache Engine**: All SQLite databases, LanceDB vector tables, and ML model weights are safely isolated inside a local `.sila_cache` directory.
 
 ---
@@ -40,13 +43,14 @@
 ```mermaid
 graph TD
     A[Raw Media Directory] --> B[Sila Media Scanner]
-    B -->|Blur Variance Audit & Frame Extraction| C[SQLite Operations Ledger]
+    B -->|Tenengrad Sharpness Audit & Frame Extraction| C[SQLite Operations Ledger]
     B -->|Dispatch DAG Tasks| D[Celery Async Task Queue]
     
     subgraph Local Inference Layer
         D -->|Vision Analysis| E[LLaVA 1.5 7B GGUF / GPU Acceleration]
         D -->|Image Embedding| F[CLIP ViT-B-32]
         D -->|Text Vectorization| G[all-MiniLM-L6-v2]
+        M[Whisper STT / openai/whisper-base.en]
     end
 
     E --> C
@@ -59,8 +63,9 @@ graph TD
         C --> I
         J --> K[React + Vite Culling Studio]
         K -->|Symlink Export & Undo| L[./Sila Exports/]
+        K -->|Mic Audio WebM| J
+        J -->|Local Audio Transcribe| M
     end
-
 ```
 
 ---
@@ -71,6 +76,7 @@ graph TD
 
 * **Python 3.11+**
 * **Node.js 18+** & `npm`
+* **FFmpeg** *(Required for video frame/metadata extraction and Whisper audio resampling)*
 * **Docker Desktop** *(Recommended for easy database setup, but 100% optional)*
 
 ### 2. Download the Repository
@@ -205,6 +211,7 @@ TEXT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 * [x] **v0.3**: Local LLaVA 1.5 7B GGUF integration on Apple Metal GPU.
 * [x] **v0.4**: Aesop-styled React culling studio with custom dialog system & Deep Player modal.
 * [x] **v0.5**: Centralized `.sila_cache` directory, dynamic cross-platform setup, and `config.py` refactor.
+* [x] **v0.6**: Real-time Application Performance Monitoring (APM), local Whisper Voice Search, and patch-based depth-of-field sharpness scoring.
 * [ ] **v1.0**: Timeline XML export for DaVinci Resolve & Adobe Premiere Pro.
 
 ---

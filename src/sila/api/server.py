@@ -15,6 +15,12 @@ from pydantic import BaseModel
 
 from config import API_TITLE, API_VERSION, EXPORTS_DIR, FRAMES_DIR
 from src.sila.core.audio import SilaAudioEngine
+from src.sila.core.constants import (
+    TRACKING_FRIENDLY_NAMES,
+    TrackingMetricType,
+    TrackingMetric,
+)
+from src.sila.core.telemetry import track_latency
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.search.engine import SilaHybridSearchEngine
 
@@ -78,10 +84,12 @@ async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
             raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
 
         # Transcribe via local Whisper engine
+        start_time = time.perf_counter()
         transcript = _AUDIO_ENGINE.transcribe(audio_bytes)
-        logger.info(f"Transcription complete: '{transcript}'")
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        logger.info(f"Transcription complete: '{transcript}' in {latency_ms} ms")
 
-        return {"text": transcript}
+        return {"text": transcript, "latency_ms": latency_ms}
 
     except Exception as e:
         logger.error(f"Audio transcription endpoint failure: {e}", exc_info=True)
@@ -91,28 +99,138 @@ async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
 @app.get("/api/search")
 def search_media(
     query: str = Query(..., min_length=1), limit: int = 15
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
-    Executes a Tri-Modal search across exact text, semantic image, and semantic text.
+    Executes a Tri-Modal search and returns the results alongside the exact execution latency.
     """
     global _SEARCH_ENGINE
 
     try:
-        # 1. Cold Start: Load the ML models into memory only on the first search
         if _SEARCH_ENGINE is None:
             logger.info("Cold Start: Mounting SilaHybridSearchEngine to Apple Metal...")
             _SEARCH_ENGINE = SilaHybridSearchEngine()
 
         logger.info(f"API Routing Search Query: '{query}'")
 
-        # 2. Delegate the heavy lifting to our encapsulated Object
+        # Start the inline timer
+        start_time = time.perf_counter()
+
+        # Execute the search
         results = _SEARCH_ENGINE.execute_query(text_query=query, limit=limit)
 
-        return results
+        # Stop the timer
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        # Return a wrapped payload so the frontend gets both data and telemetry
+        return {
+            "query": query,
+            "latency_ms": latency_ms,
+            "count": len(results),
+            "results": results,
+        }
 
     except Exception as e:
         logger.error(f"Search endpoint failure: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Search engine execution failed.")
+
+
+@app.get("/api/telemetry")
+def get_telemetry_metrics(limit: int = 40) -> dict[str, Any]:
+    """
+    Fetches historical telemetry performance records from SQLite system_telemetry table.
+    Includes recent operation latencies, pipeline breakdown, and aggregated metrics.
+    """
+    try:
+        with SilaSQLiteClient() as db:
+            assert db.conn is not None
+            cursor = db.conn.cursor()
+
+            # Fetch recent records
+            hybrid_op_name = (
+                f"track_{TrackingMetricType.ONLINE}_{TrackingMetric.HYBRID_SEARCH}"
+            )
+            cursor.execute(
+                "SELECT id, operation_name, duration_ms, "
+                "timestamp FROM system_telemetry WHERE operation_name IN "
+                "(?, 'Hybrid Search (Total)', 'track_hybrid_search') ORDER BY id DESC LIMIT ?",
+                (
+                    hybrid_op_name,
+                    limit,
+                ),
+            )
+            rows = cursor.fetchall()
+            recent = [
+                {
+                    "id": r["id"],
+                    "operation_name": r["operation_name"],
+                    "duration_ms": round(float(r["duration_ms"]), 2),
+                    "timestamp": float(r["timestamp"]),
+                }
+                for r in rows
+            ]
+
+            # Compute aggregate stats
+            cursor.execute("SELECT duration_ms FROM system_telemetry")
+            all_durations = [float(r[0]) for r in cursor.fetchall()]
+
+            if all_durations:
+                all_durations_sorted = sorted(all_durations)
+                avg_ms = round(sum(all_durations) / len(all_durations), 2)
+                p95_idx = int(len(all_durations_sorted) * 0.95)
+                p95_ms = round(
+                    all_durations_sorted[min(p95_idx, len(all_durations_sorted) - 1)], 2
+                )
+                min_ms = round(all_durations_sorted[0], 2)
+                max_ms = round(all_durations_sorted[-1], 2)
+            else:
+                avg_ms = 0.0
+                p95_ms = 0.0
+                min_ms = 0.0
+                max_ms = 0.0
+
+            # Group by operation name
+            cursor.execute("""
+                SELECT operation_name, AVG(duration_ms) as avg_ms, COUNT(*) as count, MIN(duration_ms) as min_ms, MAX(duration_ms) as max_ms
+                FROM system_telemetry
+                GROUP BY operation_name
+            """)
+            op_rows = cursor.fetchall()
+            by_operation = {
+                r["operation_name"]: {
+                    "avg_ms": round(float(r["avg_ms"]), 2),
+                    "count": int(r["count"]),
+                    "min_ms": round(float(r["min_ms"]), 2),
+                    "max_ms": round(float(r["max_ms"]), 2),
+                }
+                for r in op_rows
+            }
+
+            return {
+                "recent": recent,
+                "stats": {
+                    "average_ms": avg_ms,
+                    "p95_ms": p95_ms,
+                    "min_ms": min_ms,
+                    "max_ms": max_ms,
+                    "total_queries": len(all_durations),
+                    "by_operation": by_operation,
+                },
+                "friendly_names": TRACKING_FRIENDLY_NAMES,
+            }
+    except Exception as e:
+        logger.error(f"Failed to fetch telemetry from SQLite: {e}", exc_info=True)
+        return {
+            "recent": [],
+            "stats": {
+                "average_ms": 0.0,
+                "p95_ms": 0.0,
+                "min_ms": 0.0,
+                "max_ms": 0.0,
+                "total_queries": 0,
+                "by_operation": {},
+            },
+            "friendly_names": TRACKING_FRIENDLY_NAMES,
+        }
 
 
 @app.get("/api/proxy/{capsule_id}")
@@ -235,6 +353,7 @@ def get_all_media(limit: int = 100) -> list[dict[str, Any]]:
 
 
 @app.post("/api/export")
+@track_latency(TrackingMetric.EXPORT_ALBUM, metric_type=TrackingMetricType.ONLINE)
 def export_media(payload: ExportRequest) -> dict[str, Any]:
     op_id = uuid.uuid4().hex[:8]
     export_dir = EXPORTS_DIR / payload.album_name

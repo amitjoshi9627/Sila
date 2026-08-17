@@ -6,7 +6,6 @@ from config import SQLITE_DB_PATH
 from src.sila.core.constants import STOP_WORDS, SearchLimits
 from pathlib import Path
 
-
 logger = logging.getLogger("sila.db.sqlite")
 
 
@@ -18,6 +17,7 @@ class SilaSQLiteClient:
     def __enter__(self) -> "SilaSQLiteClient":
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL;")
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -34,7 +34,7 @@ class SilaSQLiteClient:
             assert client.conn is not None
             cursor = client.conn.cursor()
 
-            # 1. Media Table
+            # Media Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS media (
                     sila_id TEXT PRIMARY KEY,
@@ -45,7 +45,7 @@ class SilaSQLiteClient:
                 )
             """)
 
-            # 2. Capsules Table
+            # Capsules Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS capsules (
                     capsule_id TEXT PRIMARY KEY,
@@ -58,7 +58,7 @@ class SilaSQLiteClient:
                 )
             """)
 
-            # 3. Operations Ledger Table for Symlink Rollbacks
+            # Operations Ledger Table for Symlink Rollbacks
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS operations (
                     op_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +67,18 @@ class SilaSQLiteClient:
                     payload TEXT NOT NULL
                 )
             """)
-            # 4. Clean up any corrupted or 0-byte orphan media records
+
+            # Latency tracker
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_telemetry (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_name TEXT NOT NULL,
+                    duration_ms REAL NOT NULL,
+                    timestamp REAL NOT NULL
+                )
+            """)
+
+            # Clean up any corrupted or 0-byte orphan media records
             cursor.execute("DELETE FROM media WHERE file_size IS NULL OR file_size = 0")
             logger.info("SQLite Schema initialized.")
 
