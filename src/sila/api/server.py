@@ -61,7 +61,7 @@ def health_check() -> dict[str, str]:
 
 
 @app.post("/api/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
+async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, Any]:
     """
     Accepts an audio blob (.webm, .wav, .mp3) from the browser,
     runs local Whisper transcription, and returns the recognized text.
