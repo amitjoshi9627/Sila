@@ -2,21 +2,25 @@ import time
 import threading
 import logging
 from functools import wraps
-from typing import Callable, Any
+from typing import Callable, TypeVar, ParamSpec
 
 from src.sila.core.constants import TrackingMetricType
 
 logger = logging.getLogger("sila.telemetry")
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-def _write_metric_async(operation_name: str, duration_ms: float):
+
+def _write_metric_async(operation_name: str, duration_ms: float) -> None:
     """Writes telemetry to SQLite on a background thread to prevent blocking."""
 
-    def _write():
+    def _write() -> None:
         try:
             from src.sila.db.sqlite_client import SilaSQLiteClient
 
             with SilaSQLiteClient() as db:
+                assert db.conn is not None
                 cursor = db.conn.cursor()
                 cursor.execute(
                     "INSERT INTO system_telemetry (operation_name, duration_ms, timestamp) VALUES (?, ?, ?)",
@@ -29,16 +33,18 @@ def _write_metric_async(operation_name: str, duration_ms: float):
     threading.Thread(target=_write, daemon=True).start()
 
 
-def track_latency(name: str, metric_type: str = TrackingMetricType.ONLINE):
+def track_latency(
+    name: str, metric_type: str = TrackingMetricType.ONLINE
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """
     Decorator to measure execution time of a function in milliseconds.
     Prints execution time to terminal logger and asynchronously persists to SQLite.
     """
     formatted_name = f"track_{metric_type}_{name}"
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start_time = time.perf_counter()
 
             result = func(*args, **kwargs)

@@ -49,7 +49,7 @@ class SilaHybridSearchEngine:
     @track_latency(
         TrackingMetric.SQL_LEXICAL_SEARCH, metric_type=TrackingMetricType.ONLINE
     )
-    def _execute_lexical_search(self, text_query: str) -> list[dict]:
+    def _execute_lexical_search(self, text_query: str) -> list[dict[str, Any]]:
         """Exact keyword matching via SQLite."""
         return self.sqlite_client.lexical_search(
             text_query, limit=SearchLimits.KEYWORD_TEXT_SEARCH
@@ -58,7 +58,7 @@ class SilaHybridSearchEngine:
     @track_latency(
         TrackingMetric.SEMANTIC_IMAGE_SEARCH, metric_type=TrackingMetricType.ONLINE
     )
-    def _execute_semantic_image_search(self, text_query: str) -> list[dict]:
+    def _execute_semantic_image_search(self, text_query: str) -> list[dict[str, Any]]:
         """CLIP Semantic Image Search."""
         vision_lm_vector = self.vision_embedder.generate_embedding(text_query)
         return self.lancedb_client.vector_search(
@@ -71,7 +71,7 @@ class SilaHybridSearchEngine:
     @track_latency(
         TrackingMetric.SEMANTIC_TEXT_SEARCH, metric_type=TrackingMetricType.ONLINE
     )
-    def _execute_semantic_text_search(self, text_query: str) -> list[dict]:
+    def _execute_semantic_text_search(self, text_query: str) -> list[dict[str, Any]]:
         """Semantic Text Search."""
         text_vector = self.text_embedder.generate_embedding(text_query)
         return self.lancedb_client.vector_search(

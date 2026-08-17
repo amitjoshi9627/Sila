@@ -11,7 +11,7 @@ import uuid
 from src.sila.core.telemetry import track_latency
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.pipeline.dispatcher import SilaDAGDispatcher
-from src.sila.vision.sharpness import SilaSharpnessAnalyzer
+from src.sila.vision.sharpness import SilaSharpnessAnalyzer, SharpnessResult
 
 from config import (
     FRAMES_DIR,
@@ -235,7 +235,7 @@ class SilaMediaScanner:
     @track_latency(
         TrackingMetric.FRAME_SHARPNESS, metric_type=TrackingMetricType.OFFLINE
     )
-    def _evaluate_frame_sharpness(self, thumb_path: Path):
+    def _evaluate_frame_sharpness(self, thumb_path: Path) -> SharpnessResult:
         return self.sharpness_analyzer.analyze(thumb_path)
 
     @track_latency(
