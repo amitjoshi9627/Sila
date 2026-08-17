@@ -8,9 +8,10 @@ import cv2
 import numpy as np
 import uuid
 
+from src.sila.core.telemetry import track_latency
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.pipeline.dispatcher import SilaDAGDispatcher
-from src.sila.vision.sharpness import SilaSharpnessAnalyzer
+from src.sila.vision.sharpness import SilaSharpnessAnalyzer, SharpnessResult
 
 from config import (
     FRAMES_DIR,
@@ -18,7 +19,11 @@ from config import (
     VALID_VIDEO_EXTENSIONS,
     VALID_PHOTO_EXTENSIONS,
 )
-from src.sila.core.constants import SCENE_SIMILARITY_THRESHOLD
+from src.sila.core.constants import (
+    SCENE_SIMILARITY_THRESHOLD,
+    TrackingMetricType,
+    TrackingMetric,
+)
 from tqdm import tqdm
 
 logger = logging.getLogger("sila.pipeline.scanner")
@@ -77,6 +82,7 @@ class SilaMediaScanner:
             logger.error(f"Failed to read duration for {video_path.name}: {e}")
             return 0.0
 
+    @track_latency(TrackingMetric.VIDEO_SLICING, metric_type=TrackingMetricType.OFFLINE)
     def _slice_video_into_capsules(
         self, video_path: Path, parent_id: str
     ) -> list[Tuple[str, float]]:
@@ -226,6 +232,15 @@ class SilaMediaScanner:
 
         return capsules_found
 
+    @track_latency(
+        TrackingMetric.FRAME_SHARPNESS, metric_type=TrackingMetricType.OFFLINE
+    )
+    def _evaluate_frame_sharpness(self, thumb_path: Path) -> SharpnessResult:
+        return self.sharpness_analyzer.analyze(thumb_path)
+
+    @track_latency(
+        TrackingMetric.TOTAL_MEDIA_INGEST, metric_type=TrackingMetricType.OFFLINE
+    )
     def _process_media_file(self, source_path: Path) -> int:
         """Determines media type, generates capsules, updates DB, and fires the DAG."""
         if not source_path.exists() or source_path.stat().st_size == 0:
@@ -289,7 +304,7 @@ class SilaMediaScanner:
 
             if thumb_path.exists():
                 # Evaluate sharpness with the patch-based analyzer
-                sharpness_result = self.sharpness_analyzer.analyze(thumb_path)
+                sharpness_result = self._evaluate_frame_sharpness(thumb_path)
                 score = sharpness_result.overall_score
                 is_junk = 1 if score < 0.3 else 0
 

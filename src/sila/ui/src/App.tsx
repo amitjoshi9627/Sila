@@ -8,10 +8,12 @@ import { CullingStudio, CullMode } from "./components/CullingStudio";
 import { LandingFoyer } from "./components/LandingFoyer";
 import { Sidebar } from "./components/Sidebar";
 import { CustomDialog, DialogConfig } from "./components/Dialog";
+import { SearchLatencyBadge } from "./components/SearchLatencyBadge";
+import { TelemetryDeck } from "./components/TelemetryDeck";
 import { fetchMedia, searchMedia, exportAlbum, undoExport, emptyTrash } from "./lib/api";
 import { applySessionAccent } from "./utils/colorSampler";
-import type { ParentMedia } from "./types";
-import { Download, RotateCcw } from "lucide-react";
+import type { ParentMedia, ActiveSearchTelemetry } from "./types";
+import { Download, RotateCcw, Activity, Zap } from "lucide-react";
 import { useLocation } from "wouter";
 import { imageUrlFor } from "./lib/api";
 
@@ -38,6 +40,8 @@ export default function App() {
   const [selectedParent, setSelectedParent] = useState<ParentMedia | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [searchTelemetry, setSearchTelemetry] = useState<ActiveSearchTelemetry | null>(null);
+  const [showTelemetryDeck, setShowTelemetryDeck] = useState(false);
 
   const handleToggleReviewed = useCallback((parentId: string, reviewed: boolean) => {
     setReviewedIds(prev => {
@@ -100,13 +104,25 @@ export default function App() {
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
-  // Dismiss foyer on global Cmd+K
+  // Dismiss foyer on global Cmd+K, and toggle Telemetry on 'T'
   useEffect(() => {
     function handleGlobalKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         if (showFoyer) {
           setLocation("/library");
         }
+      }
+      // Toggle Telemetry deck on 't' / 'T' key when not focused in input
+      if (
+        (e.key === "t" || e.key === "T") &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        setShowTelemetryDeck((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleGlobalKey);
@@ -128,8 +144,22 @@ export default function App() {
     setSearchQuery(tag);
     setLocation("/search");
     setIsLoading(true);
-    searchMedia(tag).then(({ items }) => {
-      setSearchResults(items);
+    setSearchTelemetry({
+      query: tag,
+      latencyMs: 0,
+      count: 0,
+      timestamp: Date.now(),
+      isSearching: true,
+    });
+    searchMedia(tag).then((response) => {
+      setSearchResults(response.items);
+      setSearchTelemetry({
+        query: response.query || tag,
+        latencyMs: response.latencyMs,
+        count: response.count,
+        timestamp: Date.now(),
+        isSearching: false,
+      });
       setIsLoading(false);
     });
     setSelectedParent(null);
@@ -139,8 +169,22 @@ export default function App() {
   async function handleSearch(q: string) {
     setSearchQuery(q);
     setIsLoading(true);
-    const { items } = await searchMedia(q);
-    setSearchResults(items);
+    setSearchTelemetry({
+      query: q,
+      latencyMs: 0,
+      count: 0,
+      timestamp: Date.now(),
+      isSearching: true,
+    });
+    const response = await searchMedia(q);
+    setSearchResults(response.items);
+    setSearchTelemetry({
+      query: response.query || q,
+      latencyMs: response.latencyMs,
+      count: response.count,
+      timestamp: Date.now(),
+      isSearching: false,
+    });
     setIsLoading(false);
   }
 
@@ -255,7 +299,15 @@ export default function App() {
             />
 
             <div className="flex flex-col flex-1" style={{ paddingLeft: "72px" }}>
-      <Header count={library.length} isLoading={isLoading} isMock={false} onLogoClick={() => setLocation("/")} />
+      <Header
+        count={library.length}
+        isLoading={isLoading}
+        isMock={false}
+        onLogoClick={() => setLocation("/")}
+        latencyMs={searchTelemetry?.latencyMs || 0}
+        isSearching={isLoading && workspace === "search"}
+        onOpenTelemetry={() => setShowTelemetryDeck(true)}
+      />
 
       <main className="relative mx-auto w-full max-w-[1120px] px-8 pb-40 pt-10">
         <AnimatePresence mode="wait">
@@ -329,14 +381,28 @@ export default function App() {
                     onNavigate={handleOmnibarNavigate}
                     isSearching={isLoading}
                     initialQuery={searchQuery}
+                    latencyMs={searchTelemetry?.latencyMs || 0}
+                    onOpenTelemetry={() => setShowTelemetryDeck(true)}
                   />
                 </div>
               </div>
               
-              <div className="mb-6 flex justify-between items-center border-b border-[--color-aesop-ink]/10 pb-4">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-[--color-aesop-ink]/50">
-                  {searchQuery ? `Found ${searchResults.length} master files` : "Explore your entire catalog"}
-                </span>
+              <div className="mb-6 flex flex-wrap gap-3 justify-between items-center border-b border-[--color-aesop-ink]/10 pb-4">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-[--color-aesop-ink]/50 font-mono">
+                    {searchQuery ? `Found ${searchResults.length} master files` : "Explore your entire catalog"}
+                  </span>
+                  
+                  {/* Latency badge & telemetry trigger */}
+                  <SearchLatencyBadge
+                    latencyMs={searchTelemetry?.latencyMs || 0}
+                    isSearching={isLoading}
+                    itemCount={searchResults.length}
+                    query={searchQuery}
+                    onOpenTelemetry={() => setShowTelemetryDeck(true)}
+                  />
+                </div>
+
                 <div className="flex items-center gap-4">
                   <button
                     onClick={triggerUndo}
@@ -346,6 +412,7 @@ export default function App() {
                     <RotateCcw size={12} />
                     <span className="hidden sm:inline">Undo</span>
                   </button>
+
                   {searchQuery && (
                     <button 
                       onClick={() => {
@@ -417,6 +484,13 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* Tri-Modal Telemetry Deck */}
+      <TelemetryDeck
+        isOpen={showTelemetryDeck}
+        onClose={() => setShowTelemetryDeck(false)}
+        activeTelemetry={searchTelemetry}
+      />
 
       <CustomDialog config={dialogConfig} />
     </motion.div>

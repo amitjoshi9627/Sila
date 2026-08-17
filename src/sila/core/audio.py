@@ -12,6 +12,8 @@ import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
 from config import MODEL_DIR, STT_MODEL_NAME
+from src.sila.core.constants import TrackingMetric, TrackingMetricType
+from src.sila.core.telemetry import track_latency
 
 logger = logging.getLogger("sila.core.audio")
 
@@ -74,6 +76,7 @@ class SilaAudioEngine:
             device=self.device,
         )
 
+    @track_latency(TrackingMetric.WHISPER_STT, metric_type=TrackingMetricType.ONLINE)
     def transcribe(self, audio_bytes: bytes) -> str:
         """
         Takes raw audio bytes (like a .webm or .mp4 upload from the browser),

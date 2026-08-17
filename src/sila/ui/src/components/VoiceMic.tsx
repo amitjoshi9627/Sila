@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mic, Square, X } from "lucide-react";
 
 const API_BASE = "http://localhost:8000";
-const SILENCE_TIMEOUT_MS = 4500;
+const SILENCE_TIMEOUT_MS = 1200;
 const SILENCE_THRESHOLD = 0.012;
 
 /* ─── Haptics Helper ─────────────────────────────────────────────── */
@@ -388,6 +388,7 @@ export function VoiceMic({ onTranscript }: VoiceMicProps) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<"idle" | "listening" | "processing" | "done">("idle");
   const [transcript, setTranscript] = useState("");
+  const [latency, setLatency] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const streamRef    = useRef<MediaStream | null>(null);
@@ -491,6 +492,7 @@ export function VoiceMic({ onTranscript }: VoiceMicProps) {
       const text: string = data.text?.trim() ?? "";
       if (text) {
         setTranscript(text);
+        if (data.latency_ms) setLatency(data.latency_ms);
         setPhase("done");
         playTone("chord");
         vibrate(20);
@@ -514,6 +516,7 @@ export function VoiceMic({ onTranscript }: VoiceMicProps) {
     setOpen(true);
     setPhase("idle");
     setTranscript("");
+    setLatency(null);
     setError(null);
     setTimeout(startRecording, 350);
   };
@@ -524,6 +527,7 @@ export function VoiceMic({ onTranscript }: VoiceMicProps) {
     setOpen(false);
     setPhase("idle");
     setTranscript("");
+    setLatency(null);
     setError(null);
   }, [stopRecording]);
 
@@ -605,18 +609,35 @@ export function VoiceMic({ onTranscript }: VoiceMicProps) {
                 </button>
 
                 {/* Phase label */}
-                <motion.p
+                <motion.div
                   key={phase}
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mb-4 text-center text-[8.5px] uppercase tracking-[0.38em] text-aesop-ink/30"
-                  style={{ fontFamily: "var(--font-aesop-sans)" }}
+                  className="mb-4 flex flex-col items-center justify-center gap-2"
                 >
-                  {phase === "idle" && "initialising"}
-                  {phase === "listening" && "listening"}
-                  {phase === "processing" && "transcribing"}
-                  {phase === "done" && "captured"}
-                </motion.p>
+                  <p
+                    className="text-center text-[8.5px] uppercase tracking-[0.38em] text-aesop-ink/30"
+                    style={{ fontFamily: "var(--font-aesop-sans)" }}
+                  >
+                    {phase === "idle" && "initialising"}
+                    {phase === "listening" && "listening"}
+                    {phase === "processing" && "transcribing"}
+                    {phase === "done" && "captured"}
+                  </p>
+                  
+                  {phase === "done" && latency && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }} 
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-[#E5EAD7] px-2 py-0.5"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#5C7E5F]" />
+                      <span className="text-[9px] font-bold tracking-widest text-[#5C7E5F] uppercase">
+                        STT {latency.toFixed(0)} MS
+                      </span>
+                    </motion.div>
+                  )}
+                </motion.div>
 
                 {/* ── Canvas Orb ── */}
                 <div className="flex justify-center -mx-4">

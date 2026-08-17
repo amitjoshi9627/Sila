@@ -8,8 +8,11 @@ from src.sila.core.constants import (
     DistanceThreshold,
     IMAGE_VECTOR_COL,
     TEXT_VECTOR_COL,
+    TrackingMetricType,
+    TrackingMetric,
 )
 from src.sila.core.llm import SilaEmbeddingEngine
+from src.sila.core.telemetry import track_latency
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.db.lancedb_client import SilaLanceDBClient
 from typing import cast
@@ -22,41 +25,19 @@ class SilaHybridSearchEngine:
         self.sqlite_client = SilaSQLiteClient()
         self.lancedb_client = SilaLanceDBClient()
 
-        # Instantiate the Text embedder specifically for querying
-        logger.info("Initializing Search Engine TEXT Embedder...")
+        logger.info("Initializing Search Engine Embedder...")
         self.text_embedder = SilaEmbeddingEngine(EmbeddingType.SENTENCE_MODEL)
         self.vision_embedder = SilaEmbeddingEngine(EmbeddingType.VISION_LM)
 
+    @track_latency(TrackingMetric.HYBRID_SEARCH, metric_type=TrackingMetricType.ONLINE)
     def execute_query(self, text_query: str, limit: int = 15) -> list[dict[str, Any]]:
-        """The single public method to execute a Tri-Modal Search."""
+        """The single method to execute a Tri-Modal Search."""
         logger.info(f"Executing Tri-Modal Search for: '{text_query}'")
 
-        # 1. Transform the query string into math
-        text_vector = self.text_embedder.generate_embedding(text_query)
-        vision_lm_vector = self.vision_embedder.generate_embedding(text_query)
+        lexical_results = self._execute_lexical_search(text_query)
+        visual_results = self._execute_semantic_image_search(text_query)
+        conceptual_results = self._execute_semantic_text_search(text_query)
 
-        # 2. Track 1: Lexical (SQLite Token Density)
-        lexical_results = self.sqlite_client.lexical_search(
-            text_query, limit=SearchLimits.KEYWORD_TEXT_SEARCH
-        )
-
-        # 3. Track 2: Visual Semantics (LanceDB Image Pixels)
-        visual_results = self.lancedb_client.vector_search(
-            vision_lm_vector,
-            column_name=IMAGE_VECTOR_COL,
-            limit=SearchLimits.SEMANTIC_IMAGE_SEARCH,
-            threshold=DistanceThreshold.SEMANTIC_IMAGE_SEARCH,
-        )
-
-        # 4. Track 3: Conceptual Semantics (LanceDB LLaVA Text)
-        conceptual_results = self.lancedb_client.vector_search(
-            text_vector,
-            column_name=TEXT_VECTOR_COL,
-            limit=SearchLimits.SEMANTIC_TEXT_SEARCH,
-            threshold=DistanceThreshold.SEMANTIC_TEXT_SEARCH,
-        )
-
-        # 5. Fuse, Hydrate, and Group
         rrf_scores = self._score_rrf(
             lexical_results, visual_results, conceptual_results
         )
@@ -65,7 +46,43 @@ class SilaHybridSearchEngine:
         logger.info(f"Found {len(final_list)} matches for : {text_query}")
         return final_list
 
+    @track_latency(
+        TrackingMetric.SQL_LEXICAL_SEARCH, metric_type=TrackingMetricType.ONLINE
+    )
+    def _execute_lexical_search(self, text_query: str) -> list[dict[str, Any]]:
+        """Exact keyword matching via SQLite."""
+        return self.sqlite_client.lexical_search(
+            text_query, limit=SearchLimits.KEYWORD_TEXT_SEARCH
+        )
+
+    @track_latency(
+        TrackingMetric.SEMANTIC_IMAGE_SEARCH, metric_type=TrackingMetricType.ONLINE
+    )
+    def _execute_semantic_image_search(self, text_query: str) -> list[dict[str, Any]]:
+        """CLIP Semantic Image Search."""
+        vision_lm_vector = self.vision_embedder.generate_embedding(text_query)
+        return self.lancedb_client.vector_search(
+            vision_lm_vector,
+            column_name=IMAGE_VECTOR_COL,
+            limit=SearchLimits.SEMANTIC_IMAGE_SEARCH,
+            threshold=DistanceThreshold.SEMANTIC_IMAGE_SEARCH,
+        )
+
+    @track_latency(
+        TrackingMetric.SEMANTIC_TEXT_SEARCH, metric_type=TrackingMetricType.ONLINE
+    )
+    def _execute_semantic_text_search(self, text_query: str) -> list[dict[str, Any]]:
+        """Semantic Text Search."""
+        text_vector = self.text_embedder.generate_embedding(text_query)
+        return self.lancedb_client.vector_search(
+            text_vector,
+            column_name=TEXT_VECTOR_COL,
+            limit=SearchLimits.SEMANTIC_TEXT_SEARCH,
+            threshold=DistanceThreshold.SEMANTIC_TEXT_SEARCH,
+        )
+
     @staticmethod
+    @track_latency(TrackingMetric.RANKING_FUSION, metric_type=TrackingMetricType.ONLINE)
     def _score_rrf(
         lexical: list[dict[str, Any]],
         visual: list[dict[str, Any]],
@@ -115,6 +132,9 @@ class SilaHybridSearchEngine:
             )
             return {"raw_output": raw_tags.strip()}
 
+    @track_latency(
+        TrackingMetric.GROUPING_VIDEO_FRAMES, metric_type=TrackingMetricType.ONLINE
+    )
     def _hydrate_and_group(
         self, rrf_scores: dict[str, float], limit: int
     ) -> list[dict[str, Any]]:

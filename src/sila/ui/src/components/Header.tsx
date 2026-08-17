@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Dot } from "lucide-react";
+import { Dot, Zap, Activity } from "lucide-react";
 import { SilaLogo } from "./SilaLogo";
 
 interface HeaderProps {
@@ -7,9 +7,20 @@ interface HeaderProps {
   isLoading: boolean;
   isMock: boolean;
   onLogoClick?: () => void;
+  latencyMs?: number;
+  isSearching?: boolean;
+  onOpenTelemetry?: () => void;
 }
 
-export function Header({ count, isLoading, isMock, onLogoClick }: HeaderProps) {
+export function Header({
+  count,
+  isLoading,
+  isMock,
+  onLogoClick,
+  latencyMs = 0,
+  isSearching = false,
+  onOpenTelemetry,
+}: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-[--color-aesop-ink]/15 bg-[--color-aesop-paper]/90 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1120px] items-center justify-between px-8">
@@ -35,6 +46,8 @@ export function Header({ count, isLoading, isMock, onLogoClick }: HeaderProps) {
 
         {/* Right side: status + count */}
         <div className="flex items-center gap-3">
+
+
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

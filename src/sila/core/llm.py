@@ -29,7 +29,8 @@ from config import (
     TEXT_EMBEDDING_MODEL_NAME,
 )
 
-from src.sila.core.constants import EmbeddingType
+from src.sila.core.constants import EmbeddingType, TrackingMetric, TrackingMetricType
+from src.sila.core.telemetry import track_latency
 
 EMBEDDING_MODEL_NAME = {
     EmbeddingType.VISION_LM: CLIP_MODEL_NAME,
@@ -255,6 +256,9 @@ class SilaEmbeddingEngine:
                 local_files_only=False,
             )
 
+    @track_latency(
+        TrackingMetric.QUERY_EMBEDDING_GENERATION, metric_type=TrackingMetricType.ONLINE
+    )
     def generate_embedding(self, input_data: str | Image.Image) -> list[float]:
         """
         Generates a vector embedding.

@@ -6,8 +6,9 @@ from PIL import Image
 
 from celery import Celery
 from config import CELERY_BROKER_URL
-from src.sila.core.constants import EmbeddingType
+from src.sila.core.constants import EmbeddingType, TrackingMetric, TrackingMetricType
 from src.sila.core.llm import SilaVisionEngine, SilaEmbeddingEngine
+from src.sila.core.telemetry import track_latency
 
 from src.sila.db.sqlite_client import SilaSQLiteClient
 from src.sila.db.lancedb_client import SilaLanceDBClient
@@ -30,6 +31,7 @@ _TEXT_EMBEDDER: SilaEmbeddingEngine | None = None
 
 
 @celery_app.task(bind=True, max_retries=3)  # type: ignore[untyped-decorator]
+@track_latency(TrackingMetric.IMAGE_CAPTIONING, metric_type=TrackingMetricType.OFFLINE)
 def process_vision_node(
     self: Any,
     capsule_id: str,
@@ -46,15 +48,15 @@ def process_vision_node(
                 "llava"
             )  # Pulls from VISION_MODEL_REGISTRY
 
-        # 1. Run LLM Inference
+        # Run LLM Inference
         cognitive_json = _VISION_ENGINE.generate_cognitive_tags(Path(image_path_str))
 
-        # 2. Save strictly to SQLite
+        # Save strictly to SQLite
         db = SilaSQLiteClient()
         db.update_cognitive_tags(capsule_id, cognitive_json)
         logger.info(f"Vision Engine processed capsule: {capsule_id}")
 
-        # 3. Pass minimal payload down the DAG to the Embedding Node
+        # Pass minimal payload down the DAG to the Embedding Node
         return {
             "capsule_id": capsule_id,
             "image_path_str": image_path_str,
@@ -68,6 +70,7 @@ def process_vision_node(
 
 
 @celery_app.task(bind=True, max_retries=3)  # type: ignore[untyped-decorator]
+@track_latency(TrackingMetric.EMBEDDING, metric_type=TrackingMetricType.OFFLINE)
 def process_embedding_node(self: Any, pipeline_payload: dict[str, Any]) -> str:
     """DAG Step 2: Generates both dual-vectors and saves to LanceDB."""
     global _IMAGE_EMBEDDER, _TEXT_EMBEDDER
@@ -100,11 +103,11 @@ def process_embedding_node(self: Any, pipeline_payload: dict[str, Any]) -> str:
                 EmbeddingType.SENTENCE_MODEL
             )  # loads MiniLM
 
-        # 1. Image -> Vector (Direct Pixel mapping)
+        # Image -> Vector (Direct Pixel mapping)
         img = Image.open(image_path_str)
         image_vector = _IMAGE_EMBEDDER.generate_embedding(img)
 
-        # 2. JSON -> Natural Text -> Vector
+        # JSON -> Natural Text -> Vector
         try:
             # Strip raw JSON syntax, so it doesn't pollute the text embedding math
             cog_dict = json.loads(cognitive_tags)
@@ -114,7 +117,7 @@ def process_embedding_node(self: Any, pipeline_payload: dict[str, Any]) -> str:
 
         text_vector = _TEXT_EMBEDDER.generate_embedding(clean_text)
 
-        # 3. Save both vectors safely to LanceDB
+        # Save both vectors safely to LanceDB
         lancedb_client = SilaLanceDBClient()
         lancedb_client.upsert_vectors(
             capsule_id=capsule_id,
